@@ -1,4 +1,7 @@
-feedparser==6.0.12
-requests==2.33.1
-python-dotenv==1.2.2
-playwright==1.58.0
+requests==2.31.0
+beautifulsoup4==4.12.3
+lxml==5.2.1
+python-dotenv==1.0.1
+feedparser==6.0.11
+playwright==1.44.0
+urllib3==2.2.1
