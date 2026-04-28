@@ -58,15 +58,16 @@ def generate_id(item):
 # ============================================================
 # MAIN PIPELINE
 # ============================================================
-def run_pipeline():
-    logger.info("=" * 60)
-    logger.info("🚀 STARTING LEAD PIPELINE")
-    logger.info("=" * 60)
+
+    def run_pipeline():
+    logger.info("Starting pipeline")
 
     telegram = TelegramService()
 
-    # 🔥 FORCE TEST MESSAGE (IMPORTANT)
-    telegram.send_message("🚀 Pipeline started successfully")
+    # ✅ CORRECT PLACE
+    telegram.send_message("🔥 TEST MESSAGE FROM GITHUB ACTION")
+
+    telegram.send_message("🚀 Pipeline started")
 
     # ============================================================
     # STEP 1: FETCH DATA
