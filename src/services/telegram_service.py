@@ -9,8 +9,6 @@ logger = logging.getLogger(__name__)
 
 
 class TelegramService:
-    # ✅ TEST LINE (add this)
-telegram.send_message("🔥 TEST MESSAGE FROM GITHUB ACTION")
     """Sends alerts and lead notifications to Telegram."""
 
     MAX_MESSAGE_LENGTH = 3500
