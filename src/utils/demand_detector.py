@@ -1,110 +1,112 @@
-"""Demand detection and value extraction."""
-
-import logging
 import re
-from typing import Dict, Any
-
-logger = logging.getLogger(__name__)
 
 
 class DemandDetector:
-    """Detects demand signals and extracts monetary values."""
-    
-    # Keywords indicating demand/need
-    DEMAND_KEYWORDS = {
-        "need", "require", "requirement", "supplier", "vendor",
-        "wanted", "seek", "looking", "search", "purchase",
-        "procurement", "tender", "bid", "request", "inquiry",
-        "demand", "buyer", "looking for", "in need", "urgent need",
-        "bulk order", "contract", "buyer requirement", "vendor requirement",
-        "buying", "sourcing", "interested", "required", "requirement",
-    }
-    
-    # Keywords indicating urgency
-    URGENCY_KEYWORDS = {
-        "urgent", "immediate", "asap", "quickly", "rush",
-        "priority", "fast", "time-sensitive", "bulk", "project",
-        "time bound", "on urgent basis", "immediately required",
-    }
-    
-    def analyze(self, item: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze item for demand and extract value."""
-        title = item.get("title", "").lower()
-        description = item.get("description", "").lower()
-        combined_text = f"{title} {description}"
-        
-        # Check for demand keywords
-        has_demand = self._has_demand_keywords(combined_text)
-        
-        # Check for urgency
-        has_urgency = self._has_urgency_keywords(combined_text)
-        
-        # Extract monetary value
-        numeric_value = self._extract_value(combined_text)
-        
+    """Detects real demand + funding intent + extracts deal value"""
+
+    # 🔥 HIGH-INTENT (Loan / Funding signals)
+    FUNDING_KEYWORDS = [
+        "working capital",
+        "business loan",
+        "loan required",
+        "need loan",
+        "looking for finance",
+        "credit facility",
+        "cash flow issue",
+        "short term funding",
+        "invoice discounting",
+        "bill discounting",
+        "overdraft",
+        "od limit",
+        "cc limit",
+        "inventory financing",
+        "purchase financing",
+        "expansion funding",
+        "project funding"
+    ]
+
+    # 🔥 DEMAND KEYWORDS (General business demand)
+    DEMAND_KEYWORDS = [
+        "require supplier",
+        "need supplier",
+        "bulk order",
+        "urgent requirement",
+        "looking for vendor",
+        "rfq",
+        "tender",
+        "quotation required",
+        "purchase requirement",
+        "buy requirement"
+    ]
+
+    # 💰 VALUE patterns
+    VALUE_PATTERNS = [
+        r"₹\s?(\d+)\s?(lakh|lac|lacs|lakhs)",
+        r"₹\s?(\d+)\s?(crore|cr)",
+        r"(\d+)\s?(lakh|lac|lacs|lakhs)",
+        r"(\d+)\s?(crore|cr)"
+    ]
+
+    def analyze(self, item):
+        """Main analysis function"""
+
+        text = (
+            (item.get("title", "") + " " + item.get("description", ""))
+            .lower()
+        )
+
+        funding_score = self._detect_funding_intent(text)
+        demand_score = self._detect_general_demand(text)
+        value = self._extract_value(text)
+
+        is_demand = funding_score > 0 or demand_score > 0
+
         return {
-            "is_demand": has_demand,
-            "has_urgency": has_urgency,
-            "numeric_value": numeric_value,
-            "raw_value": self._extract_raw_value(combined_text),
+            "is_demand": is_demand,
+            "funding_intent": funding_score > 0,
+            "funding_score": funding_score,
+            "demand_score": demand_score,
+            "numeric_value": value
         }
-    
-    def _has_demand_keywords(self, text: str) -> bool:
-        """Check if text contains demand keywords."""
+
+    # ------------------------------------------------------------
+    # 🔥 FUNDING DETECTION (MOST IMPORTANT)
+    # ------------------------------------------------------------
+    def _detect_funding_intent(self, text):
+        score = 0
+
+        for keyword in self.FUNDING_KEYWORDS:
+            if keyword in text:
+                score += 2   # higher weight
+
+        return score
+
+    # ------------------------------------------------------------
+    # 🔍 GENERAL DEMAND
+    # ------------------------------------------------------------
+    def _detect_general_demand(self, text):
+        score = 0
+
         for keyword in self.DEMAND_KEYWORDS:
             if keyword in text:
-                return True
-        return False
-    
-    def _has_urgency_keywords(self, text: str) -> bool:
-        """Check if text contains urgency keywords."""
-        for keyword in self.URGENCY_KEYWORDS:
-            if keyword in text:
-                return True
-        return False
-    
-    def _extract_raw_value(self, text: str) -> str:
-        """Extract raw value string from text."""
-        # Match patterns like "50 lakh", "3 crore", "₹100L", etc.
-        patterns = [
-            r'₹\s*([0-9.]+)\s*(cr|crore|l|lakh)?',
-            r'([0-9.]+)\s*(crore|cr|lakh|l)\b',
-            r'rupees?\s*([0-9.]+)\s*(cr|crore|l|lakh)?',
-        ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
+                score += 1
+
+        return score
+
+    # ------------------------------------------------------------
+    # 💰 VALUE EXTRACTION
+    # ------------------------------------------------------------
+    def _extract_value(self, text):
+        for pattern in self.VALUE_PATTERNS:
+            match = re.search(pattern, text)
+
             if match:
-                return match.group(0)
-        
-        return ""
-    
-    def _extract_value(self, text: str) -> int:
-        """Extract numeric value in lakhs from text."""
-        raw_value = self._extract_raw_value(text)
-        
-        if not raw_value:
-            return 0
-        
-        try:
-            # Remove special characters
-            cleaned = raw_value.replace("₹", "").replace(",", "").strip()
-            cleaned = re.sub(r'[a-zA-Z\s]+', '', cleaned)  # Remove letters
-            
-            if not cleaned:
-                return 0
-            
-            # Extract number
-            number = float(cleaned)
-            
-            # Check unit (crore or lakh)
-            if "cr" in raw_value.lower() or "crore" in raw_value.lower():
-                # Convert crore to lakh (1 Cr = 100 Lakh)
-                return int(number * 100)
-            else:
-                # Already in lakh
-                return int(number)
-        
-        except Exception as e:
-            logger.debug(f"Error extracting value from '{raw_value}': {str(e)}")
-            return 0
+                number = int(match.group(1))
+                unit = match.group(2)
+
+                if "cr" in unit:
+                    return number * 100   # convert to lakh
+                else:
+                    return number
+
+        return 0
