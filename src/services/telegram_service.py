@@ -13,7 +13,6 @@ class TelegramService:
     MAX_MESSAGE_LENGTH = 3500
     
     def __init__(self):
-        """Initialize Telegram service."""
         self.bot_token = os.getenv("TELEGRAM_BOT_TOKEN", "")
         self.chat_id = os.getenv("TELEGRAM_CHAT_ID", "")
         self.enabled = bool(self.bot_token and self.chat_id)
@@ -24,8 +23,12 @@ class TelegramService:
                 "Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID."
             )
     
+    # ✅ NEW METHOD (IMPORTANT)
+    def send_message(self, text: str) -> bool:
+        """Send simple text message"""
+        return self._send_message(text)
+    
     def send_leads(self, leads: List[Dict[str, Any]]) -> bool:
-        """Send leads to Telegram."""
         if not leads:
             logger.info("No leads to send.")
             return True
@@ -49,7 +52,6 @@ class TelegramService:
             return False
     
     def _format_messages(self, leads: List[Dict[str, Any]]) -> List[str]:
-        """Format leads into Telegram messages."""
         messages = []
         current_message = "🔥 GURGAON HIGH-VALUE LEADS\n\n"
         lead_counter = 1
@@ -72,14 +74,12 @@ class TelegramService:
         return messages
     
     def _format_lead(self, lead: Dict[str, Any], number: int) -> str:
-        """Format individual lead."""
         title = lead.get("title", "N/A")
         company = lead.get("company", "Not specified")
         value = lead.get("numeric_value", 0)
         url = lead.get("url", "")
         score = lead.get("score", 0)
         
-        # Value format
         if value >= 100:
             value_str = f"₹{value/100:.1f} Cr"
         else:
@@ -107,8 +107,8 @@ class TelegramService:
         )
     
     def _send_message(self, message: str) -> bool:
-        """Send message via Telegram API."""
         if not self.enabled:
+            logger.warning("Telegram not enabled")
             return False
         
         try:
@@ -121,7 +121,6 @@ class TelegramService:
                 "text": message
             }
             
-            # ✅ FIXED: using data instead of json
             response = requests.post(url, data=payload, timeout=10)
             
             if response.status_code == 200:
