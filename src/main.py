@@ -1,4 +1,4 @@
-"""Main entry point for B2B lead intelligence pipeline (FINAL STABLE VERSION)."""
+"""Main entry point for B2B lead intelligence pipeline (FINAL PRODUCTION VERSION)."""
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -55,13 +55,9 @@ def generate_id(item):
 # MAIN PIPELINE
 # ============================================================
 def run_pipeline():
-    logger.info("Starting pipeline")
+    logger.info("🚀 Starting pipeline")
 
     telegram = TelegramService()
-
-    # ✅ TEST MESSAGE (you can remove later)
-    telegram.send_message("🔥 TEST MESSAGE FROM GITHUB ACTION")
-
     telegram.send_message("🚀 Pipeline started")
 
     # ============================================================
@@ -91,7 +87,7 @@ def run_pipeline():
     logger.info(f"Total items fetched: {len(all_items)}")
 
     if not all_items:
-        telegram.send_message("⚠ No data fetched from any source")
+        telegram.send_message("⚠ No data fetched")
         return
 
     # ============================================================
@@ -119,68 +115,84 @@ def run_pipeline():
         return
 
     # ============================================================
-    # STEP 4: VALUE FILTER (TEMP DISABLED)
-    # ============================================================
-    high_value_items = items_with_demand
-    logger.info(f"High value items: {len(high_value_items)}")
-
-    # ============================================================
-    # STEP 5: LOCATION FILTER
+    # STEP 4: LOCATION FILTER (ADVANCED)
     # ============================================================
     location_filter = LocationFilter()
 
-    gurgaon_items = [
-        item for item in high_value_items
-        if location_filter.is_gurgaon(item.get("title", "")) or
-           location_filter.is_gurgaon(item.get("description", "")) or
-           location_filter.is_gurgaon(item.get("location", ""))
+    filtered_items = [
+        item for item in items_with_demand
+        if location_filter.is_target_location(
+            f"{item.get('title','')} {item.get('description','')} {item.get('location','')}"
+        )
     ]
 
-    if not gurgaon_items:
-        logger.warning("No Gurgaon leads — using fallback")
-        gurgaon_items = high_value_items[:5]
+    if not filtered_items:
+        logger.warning("⚠ No location match — fallback used")
+        filtered_items = items_with_demand[:15]
 
-    logger.info(f"Location filtered items: {len(gurgaon_items)}")
+    logger.info(f"Location filtered: {len(filtered_items)}")
 
     # ============================================================
-    # STEP 6: CONTACT EXTRACTION
+    # STEP 5: CONTACT EXTRACTION
     # ============================================================
     extractor = ContactExtractor()
 
-    for item in gurgaon_items:
-        text = f"{item.get('title', '')} {item.get('description', '')}"
+    for item in filtered_items:
+        text = f"{item.get('title','')} {item.get('description','')}"
         item.update(extractor.extract(text))
 
     # ============================================================
-    # STEP 7: ENRICHMENT
+    # STEP 6: ENRICHMENT
     # ============================================================
     enricher = CompanyEnricher()
 
-    for item in gurgaon_items:
+    for item in filtered_items:
         item.update(enricher.enrich(item))
 
     # ============================================================
-    # STEP 8: SCORING
+    # STEP 7: SCORING
     # ============================================================
     scorer = LeadScorer()
 
-    for item in gurgaon_items:
+    for item in filtered_items:
         item["score"] = scorer.calculate_score(item)
 
     # ============================================================
-    # STEP 9: FINAL FILTER
+    # STEP 8: FINAL FILTER (RELAXED)
     # ============================================================
-    qualified = [x for x in gurgaon_items if x.get("score", 0) >= 5]
+    qualified = [x for x in filtered_items if x.get("score", 0) >= 3]
 
     if not qualified:
-        logger.warning("No qualified leads — using fallback")
-        qualified = gurgaon_items[:5]
+        logger.warning("⚠ No qualified leads — fallback used")
+        qualified = filtered_items[:10]
 
     # ============================================================
-    # STEP 10: SORT
+    # STEP 9: SORT
     # ============================================================
     qualified.sort(key=lambda x: x.get("score", 0), reverse=True)
     top_leads = qualified[:10]
+
+    # ============================================================
+    # STEP 10: SMART FALLBACK (ENSURE 10–15 LEADS)
+    # ============================================================
+    if len(top_leads) < 10:
+        logger.warning("⚠ Low leads — filling fallback")
+
+        existing_urls = {x.get("url") for x in top_leads}
+
+        fallback = [
+            x for x in items_with_demand
+            if x.get("funding_intent") and x.get("url") not in existing_urls
+        ]
+
+        fallback.sort(key=lambda x: x.get("score", 0), reverse=True)
+
+        top_leads.extend(fallback)
+        top_leads.sort(key=lambda x: x.get("score", 0), reverse=True)
+
+        top_leads = top_leads[:15]
+
+    logger.info(f"Final leads count: {len(top_leads)}")
 
     # ============================================================
     # STEP 11: SAVE TO SHEET
@@ -193,12 +205,12 @@ def run_pipeline():
             logger.warning(f"Sheet error: {e}")
 
     # ============================================================
-    # STEP 12: TELEGRAM SEND
+    # STEP 12: TELEGRAM
     # ============================================================
     success = telegram.send_leads(top_leads)
 
     if success:
-        logger.info("✅ Telegram sent successfully")
+        logger.info("✅ Telegram sent")
     else:
         logger.error("❌ Telegram failed")
 
@@ -209,5 +221,5 @@ def run_pipeline():
 # ENTRY POINT
 # ============================================================
 if __name__ == "__main__":
-    print("🔥 NEW VERSION DEPLOYED")
+    print("🔥 PRODUCTION VERSION DEPLOYED")
     run_pipeline()
