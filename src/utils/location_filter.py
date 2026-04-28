@@ -1,32 +1,23 @@
-"""Location filtering utilities."""
-
-import logging
-
-logger = logging.getLogger(__name__)
-
-
 class LocationFilter:
-    """Filters leads by location."""
-    
-    GURGAON_VARIANTS = {
+    """Filters leads based on target locations."""
+
+    TARGET_LOCATIONS = [
         "gurgaon",
         "gurugram",
-        "gurgaon, haryana",
-        "gurugram, haryana",
-        "ncr gurgaon",
-        "gurgaon ncr",
-        "gurgaon, ncr",
-        "gurgaon (haryana)",
-        "gurugram (haryana)",
-    }
-    
-    @staticmethod
-    def is_gurgaon(text: str) -> bool:
-        """Check if text references Gurgaon/Gurugram location (STRICT)."""
+        "sohna",
+        "manesar",
+        "rewari",
+        "nuh",
+        "mewat",
+        "g-town",          # optional slang
+        "g town",
+        "ggn"              # VERY common abbreviation
+    ]
+
+    def is_target_location(self, text: str) -> bool:
         if not text:
             return False
-        
-        text_lower = text.lower().strip()
-        
-        # Direct matching
-        return "gurgaon" in text_lower or "gurugram" in text_lower
+
+        text = text.lower()
+
+        return any(loc in text for loc in self.TARGET_LOCATIONS)
