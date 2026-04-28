@@ -7,7 +7,7 @@ on:
 
 jobs:
   run:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04   # ✅ more stable than ubuntu-latest
 
     steps:
       - name: Checkout repo
@@ -23,10 +23,10 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
+      # ✅ FIXED PLAYWRIGHT STEP
       - name: Install Playwright browsers
         run: |
-          python -m playwright install
-          python -m playwright install-deps
+          python -m playwright install chromium
 
       - name: Run Pipeline
         env:
