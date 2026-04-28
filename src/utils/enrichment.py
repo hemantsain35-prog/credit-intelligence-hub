@@ -3,23 +3,28 @@
 import logging
 import re
 from typing import Dict, Any
+from src.utils.justdial_lookup import JustDialLookup
 
 logger = logging.getLogger(__name__)
 
 
 class CompanyEnricher:
-    """Enriches leads with company information."""
+    """Enriches leads with company information and signals."""
     
     # Common business types
     BUSINESS_TYPES = {
-        "construction": ["construction", "building", "contractor", "civil"],
-        "manufacturing": ["manufacturing", "factory", "production", "industrial"],
-        "trading": ["trading", "exporter", "importer", "distributor"],
-        "services": ["services", "consulting", "solutions", "provider"],
-        "logistics": ["logistics", "transport", "shipping", "delivery"],
-        "it": ["software", "it", "digital", "technology", "app"],
-        "retail": ["retail", "e-commerce", "online", "store"],
+        "construction": ["construction", "building", "contractor", "civil", "infrastructure"],
+        "manufacturing": ["manufacturing", "factory", "production", "industrial", "units"],
+        "trading": ["trading", "exporter", "importer", "distributor", "wholesale"],
+        "services": ["services", "consulting", "solutions", "provider", "agency"],
+        "logistics": ["logistics", "transport", "shipping", "delivery", "courier"],
+        "it": ["software", "it", "digital", "technology", "app", "web"],
+        "retail": ["retail", "e-commerce", "online", "store", "shopping"],
     }
+    
+    def __init__(self):
+        """Initialize enricher with JustDial lookup."""
+        self.justdial = JustDialLookup()
     
     def enrich(self, item: Dict[str, Any]) -> Dict[str, Any]:
         """Enrich item with company information."""
@@ -27,28 +32,50 @@ class CompanyEnricher:
         description = item.get("description", "")
         combined_text = f"{title} {description}".lower()
         
-        company_name = self._extract_company_name(title)
+        company_name = item.get("company") or self._extract_company_name(title)
         business_type = self._detect_business_type(combined_text)
-        turnover = self._estimate_turnover(item.get("numeric_value", 0))
+        gst_active = self._detect_gst_signal(combined_text)
+        msme_signal = self._detect_msme_signal(combined_text)
         risk = self._assess_risk(item)
         
-        return {
+        enrichment = {
             "company": company_name,
             "business_type": business_type,
-            "turnover": turnover,
+            "gst_active": gst_active,
+            "msme_signal": msme_signal,
             "risk": risk,
         }
+        
+        # Optional: Try JustDial lookup if company name exists
+        if company_name and company_name != "Not specified":
+            try:
+                justdial_data = self.justdial.lookup(company_name)
+                if justdial_data.get("phone") and not item.get("phone"):
+                    enrichment["phone_justdial"] = justdial_data.get("phone")
+                if justdial_data.get("address"):
+                    enrichment["address_justdial"] = justdial_data.get("address")
+            except Exception as e:
+                logger.debug(f"JustDial lookup failed for {company_name}: {str(e)}")
+        
+        return enrichment
     
     def _extract_company_name(self, title: str) -> str:
-        """Extract company name from title (best effort)."""
-        # Try to extract a company name from the title
-        # This is a simple heuristic - look for capitalized words
-        words = title.split()
+        """Extract company name from title."""
+        if not title:
+            return "Not specified"
+        
+        # Remove common prefixes/suffixes
+        cleaned = re.sub(r'(^(need|urgent|looking|requirement|wanted|supplier)\s+|\s+(supplier|contractor|vendor|service|needed)$)', '', title, flags=re.IGNORECASE).strip()
+        
+        # Get first 2-3 capitalized words
+        words = cleaned.split()
         capitalized = [w for w in words if w and w[0].isupper() and len(w) > 2]
         
         if capitalized:
-            # Return first 2-3 capitalized words as company name
             return " ".join(capitalized[:3])
+        
+        if len(words) > 0:
+            return words[0][:30]  # First word up to 30 chars
         
         return "Not specified"
     
@@ -61,28 +88,46 @@ class CompanyEnricher:
         
         return "Other"
     
-    def _estimate_turnover(self, deal_value: int) -> str:
-        """Estimate turnover based on deal value."""
-        if deal_value == 0:
-            return "Unknown"
+    def _detect_gst_signal(self, text: str) -> bool:
+        """Detect GST active signal from text."""
+        gst_keywords = [
+            "gst", "gst registered", "gst number", "gstin",
+            "tax compliant", "registered business"
+        ]
         
-        # Simple heuristic: assume deal is 5-20% of annual turnover
-        # Take middle estimate
-        estimated_turnover = deal_value * 10  # Rough estimate in lakhs
+        for keyword in gst_keywords:
+            if keyword in text:
+                return True
         
-        if estimated_turnover >= 1000:
-            return f"₹{estimated_turnover / 100:.0f} Cr+"
-        else:
-            return f"₹{estimated_turnover:.0f} L+"
+        return False
+    
+    def _detect_msme_signal(self, text: str) -> bool:
+        """Detect MSME signal from text."""
+        msme_keywords = [
+            "msme", "micro enterprise", "small enterprise", "medium enterprise",
+            "startup", "sme", "udyam", "msme registered"
+        ]
+        
+        for keyword in msme_keywords:
+            if keyword in text:
+                return True
+        
+        return False
     
     def _assess_risk(self, item: Dict[str, Any]) -> str:
         """Assess lead risk level."""
         score = item.get("score", 0)
+        has_contact = item.get("phone") or item.get("email")
+        gst_active = item.get("gst_active", False)
         
-        # Higher score = lower risk
-        if score >= 15:
+        # Higher score + contact info + GST = lower risk
+        if score >= 15 and has_contact and gst_active:
             return "Low"
-        elif score >= 10:
+        elif score >= 12 and has_contact:
+            return "Low"
+        elif score >= 10 and has_contact:
+            return "Medium"
+        elif score >= 8:
             return "Medium"
         else:
             return "High"

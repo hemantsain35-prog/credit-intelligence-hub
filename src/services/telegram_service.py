@@ -1,4 +1,4 @@
-"""Telegram notification service."""
+"""Telegram notification service with rich formatting."""
 
 import logging
 import os
@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 
 class TelegramService:
-    """Sends lead alerts to Telegram."""
+    """Sends high-conversion lead alerts to Telegram."""
     
     MAX_MESSAGE_LENGTH = 3500
     
@@ -20,7 +20,7 @@ class TelegramService:
         
         if not self.enabled:
             logger.warning(
-                "Telegram credentials not configured. "
+                "⚠️  Telegram credentials not configured. "
                 "Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID environment variables."
             )
     
@@ -31,25 +31,29 @@ class TelegramService:
             return True
         
         if not self.enabled:
-            logger.info(f"Telegram disabled. Would send {len(leads)} leads:")
+            logger.info(f"📱 Telegram disabled. Would send {len(leads)} leads:")
             for i, lead in enumerate(leads, 1):
                 logger.info(f"\n{i}. {lead.get('title', 'N/A')}")
+                if lead.get("phone"):
+                    logger.info(f"   📞 {lead.get('phone')}")
+                if lead.get("email"):
+                    logger.info(f"   ✉️  {lead.get('email')}")
             return False
         
         try:
             messages = self._format_messages(leads)
             
             for msg_index, message in enumerate(messages, 1):
-                logger.info(f"Sending message {msg_index}/{len(messages)} to Telegram...")
+                logger.info(f"📤 Sending message {msg_index}/{len(messages)} to Telegram...")
                 success = self._send_message(message)
                 if not success:
-                    logger.error(f"Failed to send message {msg_index}")
+                    logger.error(f"✗ Failed to send message {msg_index}")
                     return False
             
             return True
         
         except Exception as e:
-            logger.error(f"Error sending leads to Telegram: {str(e)}")
+            logger.error(f"✗ Error sending leads to Telegram: {str(e)}")
             return False
     
     def _format_messages(self, leads: List[Dict[str, Any]]) -> List[str]:
@@ -64,6 +68,7 @@ class TelegramService:
             # Check if adding this lead would exceed message limit
             if len(current_message) + len(formatted_lead) > self.MAX_MESSAGE_LENGTH:
                 # Save current message and start new one
+                current_message += "\n👉 *Action:* Call immediately\n"
                 messages.append(current_message)
                 current_message = f"🔥 *GURGAON HIGH-VALUE LEADS* (continued)\n\n{formatted_lead}"
             else:
@@ -79,7 +84,7 @@ class TelegramService:
         return messages
     
     def _format_lead(self, lead: Dict[str, Any], number: int) -> str:
-        """Format individual lead for display."""
+        """Format individual lead with rich information."""
         title = lead.get("title", "N/A")
         company = lead.get("company", "Not specified")
         value = lead.get("numeric_value", 0)
@@ -87,6 +92,12 @@ class TelegramService:
         risk = lead.get("risk", "Unknown")
         url = lead.get("url", "#")
         score = lead.get("score", 0)
+        source = lead.get("source", "Unknown")
+        phone = lead.get("phone", "")
+        email = lead.get("email", "")
+        contact_name = lead.get("contact_name", "")
+        gst_active = lead.get("gst_active", False)
+        msme_signal = lead.get("msme_signal", False)
         
         # Format value nicely
         if value >= 100:
@@ -94,16 +105,38 @@ class TelegramService:
         else:
             value_str = f"₹{value} L"
         
-        formatted = f"""{number}. {title}
+        # Build message
+        formatted = f"""{number}. *{title}*
 📍 Gurgaon
 💰 {value_str}
 🏢 {company}
-📊 Turnover: {turnover}
-⚠️ Risk: {risk}
-⭐ Score: {score}/20
-🔗 [Read more]({url})
-
+📊 Source: {source}
+⭐ Score: {score}/25
 """
+        
+        # Add contact info if available
+        if phone or email or contact_name:
+            formatted += f"\n👤 *Contact:*"
+            if contact_name:
+                formatted += f"\n    Name: {contact_name}"
+            if phone:
+                formatted += f"\n    📞 {phone}"
+            if email:
+                formatted += f"\n    ✉️  {email}"
+        
+        # Add business signals
+        signals = []
+        if gst_active:
+            signals.append("✓ GST Registered")
+        if msme_signal:
+            signals.append("✓ MSME")
+        if risk:
+            signals.append(f"Risk: {risk}")
+        
+        if signals:
+            formatted += f"\n\n🔍 {' | '.join(signals)}"
+        
+        formatted += f"\n🔗 [View Details]({url})\n\n"
         
         return formatted
     
@@ -121,19 +154,20 @@ class TelegramService:
                 "chat_id": self.chat_id,
                 "text": message,
                 "parse_mode": "Markdown",
+                "disable_web_page_preview": False,
             }
             
             response = requests.post(url, json=payload, timeout=10)
             
             if response.status_code == 200:
-                logger.info("Message sent successfully to Telegram")
+                logger.info("✓ Message sent successfully to Telegram")
                 return True
             else:
                 logger.error(
-                    f"Telegram API error: {response.status_code} - {response.text}"
+                    f"✗ Telegram API error: {response.status_code} - {response.text}"
                 )
                 return False
         
         except Exception as e:
-            logger.error(f"Error sending message to Telegram: {str(e)}")
+            logger.error(f"✗ Error sending message to Telegram: {str(e)}")
             return False
