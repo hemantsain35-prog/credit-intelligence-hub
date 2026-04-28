@@ -48,3 +48,6 @@ logs/
 # Cache
 .pytest_cache/
 .coverage
+
+# Playwright
+.playwright/

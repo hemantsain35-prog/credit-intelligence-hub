@@ -1,94 +1,76 @@
 """TradeIndia B2B marketplace scraper."""
 
 import logging
-import requests
 from typing import List, Dict, Any
-from bs4 import BeautifulSoup
-from urllib.parse import urljoin
+
+try:
+    from playwright.sync_api import sync_playwright
+    PLAYWRIGHT_AVAILABLE = True
+except ImportError:
+    PLAYWRIGHT_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
 
-class TradeIndiaScraper:
-    """Scrapes TradeIndia for buyer requirements and supplier needs."""
+class TradeIndia:
+    """Scrapes buyer requirements from TradeIndia."""
     
-    BASE_URL = "https://www.tradeindia.com"
-    SEARCH_URL = "https://www.tradeindia.com/buyerRequirements.html"
-    
-    TIMEOUT = 10
-    HEADERS = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    }
+    BASE_URL = "https://www.tradeindia.com/buyerRequirements.html"
+    TIMEOUT = 15000  # 15 seconds
     
     def fetch_all(self) -> List[Dict[str, Any]]:
-        """Fetch all relevant listings from TradeIndia."""
-        items = []
+        """Fetch buyer requirements from TradeIndia."""
+        if not PLAYWRIGHT_AVAILABLE:
+            logger.warning("Playwright not installed. Install with: pip install playwright")
+            return []
+        
+        all_items = []
         
         try:
-            logger.debug("Attempting TradeIndia scrape...")
-            items.extend(self._fetch_buyer_requirements())
+            with sync_playwright() as p:
+                browser = p.chromium.launch(headless=True)
+                page = browser.new_page()
+                page.set_default_timeout(self.TIMEOUT)
+                
+                # Fetch buyer requirements page
+                logger.debug(f"Visiting {self.BASE_URL}")
+                page.goto(self.BASE_URL, wait_until="networkidle", timeout=self.TIMEOUT)
+                
+                # Extract requirements
+                items = page.query_selector_all(".requirement-item")
+                
+                for item_elem in items:
+                    try:
+                        item = self._parse_item(item_elem)
+                        if item:
+                            all_items.append(item)
+                    except Exception as e:
+                        logger.debug(f"Error parsing TradeIndia item: {str(e)}")
+                        continue
+                
+                browser.close()
+        
         except Exception as e:
-            logger.debug(f"TradeIndia scrape encountered issue: {str(e)}")
+            logger.error(f"TradeIndia scraping error: {str(e)}")
         
-        return items
+        return all_items
     
-    def _fetch_buyer_requirements(self) -> List[Dict[str, Any]]:
-        """Fetch from buyer requirements page."""
-        items = []
-        
+    def _parse_item(self, elem) -> Dict[str, Any]:
+        """Parse TradeIndia requirement item."""
         try:
-            response = requests.get(
-                self.SEARCH_URL,
-                headers=self.HEADERS,
-                timeout=self.TIMEOUT
-            )
-            response.raise_for_status()
+            title = elem.query_selector(".req-title")?.text_content("").strip() or ""
+            description = elem.query_selector(".req-desc")?.text_content("").strip() or ""
+            location = elem.query_selector(".req-location")?.text_content("").strip() or ""
+            url = elem.query_selector("a")?.get_attribute("href") or ""
             
-            soup = BeautifulSoup(response.content, "html.parser")
-            
-            # TradeIndia uses different structure
-            listings = soup.find_all("div", class_="requirement-item")
-            if not listings:
-                listings = soup.find_all("div", class_="buyerRequirement")
-            
-            for listing in listings:
-                item = self._parse_listing(listing)
-                if item:
-                    items.append(item)
-            
-            logger.debug(f"TradeIndia: Parsed {len(items)} listings")
-        
-        except requests.RequestException as e:
-            logger.debug(f"TradeIndia request failed: {str(e)}")
-        except Exception as e:
-            logger.debug(f"TradeIndia parsing error: {str(e)}")
-        
-        return items
-    
-    def _parse_listing(self, listing) -> Dict[str, Any]:
-        """Parse individual TradeIndia listing."""
-        try:
-            title_elem = listing.find("a", class_="req-title")
-            if not title_elem:
-                title_elem = listing.find("h3")
-            
-            desc_elem = listing.find("p", class_="req-desc")
-            if not desc_elem:
-                desc_elem = listing.find("p")
-            
-            location_elem = listing.find("span", class_="req-location")
-            url_elem = listing.find("a", href=True)
-            
-            title = title_elem.get_text(strip=True) if title_elem else ""
-            description = desc_elem.get_text(strip=True) if desc_elem else ""
-            location = location_elem.get_text(strip=True) if location_elem else ""
-            url = url_elem.get("href", "") if url_elem else ""
-            
-            if url and url.startswith("/"):
-                url = urljoin(self.BASE_URL, url)
-            
-            if not title:
+            if not title or not url:
                 return None
+            
+            # Ensure URL is absolute
+            if url.startswith("/"):
+                url = "https://www.tradeindia.com" + url
+            elif not url.startswith("http"):
+                url = "https://www.tradeindia.com" + url
             
             return {
                 "title": title,
@@ -96,10 +78,8 @@ class TradeIndiaScraper:
                 "location": location,
                 "url": url,
                 "source": "TradeIndia",
-                "phone": "",
-                "email": "",
             }
         
         except Exception as e:
-            logger.debug(f"Error parsing TradeIndia listing: {str(e)}")
+            logger.debug(f"Error parsing item element: {str(e)}")
             return None

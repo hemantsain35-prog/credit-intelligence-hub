@@ -1,8 +1,13 @@
 """RSS feed scraper for lead intelligence."""
 
 import logging
-import feedparser
 from typing import List, Dict, Any
+
+try:
+    import feedparser
+    FEEDPARSER_AVAILABLE = True
+except ImportError:
+    FEEDPARSER_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -20,16 +25,20 @@ class RssScraper:
     
     def fetch_all(self) -> List[Dict[str, Any]]:
         """Fetch and normalize items from all RSS feeds."""
+        if not FEEDPARSER_AVAILABLE:
+            logger.warning("feedparser not installed. Install with: pip install feedparser")
+            return []
+        
         all_items = []
         
         for feed_url in self.RSS_FEEDS:
             try:
-                logger.info(f"Fetching feed: {feed_url}")
+                logger.debug(f"Fetching feed: {feed_url}")
                 items = self._fetch_feed(feed_url)
                 all_items.extend(items)
-                logger.info(f"Fetched {len(items)} items from {feed_url}")
+                logger.debug(f"Fetched {len(items)} items from {feed_url}")
             except Exception as e:
-                logger.error(f"Error fetching {feed_url}: {str(e)}")
+                logger.debug(f"Error fetching {feed_url}: {str(e)}")
                 continue
         
         # Remove duplicates based on URL
@@ -47,7 +56,7 @@ class RssScraper:
         items = []
         
         if feed.bozo:
-            logger.warning(f"Feed parsing warning for {feed_url}: {feed.bozo_exception}")
+            logger.debug(f"Feed parsing warning for {feed_url}")
         
         for entry in feed.entries[:20]:  # Limit to 20 items per feed
             item = self._normalize_entry(entry)
@@ -69,9 +78,9 @@ class RssScraper:
             return {
                 "title": title,
                 "description": description,
-                "url": url,
-                "value": "",
                 "location": "",
+                "url": url,
+                "source": "RSS",
             }
         except Exception as e:
             logger.debug(f"Error normalizing entry: {str(e)}")

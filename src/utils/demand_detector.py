@@ -16,13 +16,15 @@ class DemandDetector:
         "wanted", "seek", "looking", "search", "purchase",
         "procurement", "tender", "bid", "request", "inquiry",
         "demand", "buyer", "looking for", "in need", "urgent need",
-        "bulk order", "contract"
+        "bulk order", "contract", "buyer requirement", "vendor requirement",
+        "buying", "sourcing", "interested", "required", "requirement",
     }
     
     # Keywords indicating urgency
     URGENCY_KEYWORDS = {
         "urgent", "immediate", "asap", "quickly", "rush",
-        "priority", "fast", "time-sensitive", "bulk", "project"
+        "priority", "fast", "time-sensitive", "bulk", "project",
+        "time bound", "on urgent basis", "immediately required",
     }
     
     def analyze(self, item: Dict[str, Any]) -> Dict[str, Any]:
@@ -67,6 +69,7 @@ class DemandDetector:
         patterns = [
             r'₹\s*([0-9.]+)\s*(cr|crore|l|lakh)?',
             r'([0-9.]+)\s*(crore|cr|lakh|l)\b',
+            r'rupees?\s*([0-9.]+)\s*(cr|crore|l|lakh)?',
         ]
         
         for pattern in patterns:
@@ -86,16 +89,16 @@ class DemandDetector:
         try:
             # Remove special characters
             cleaned = raw_value.replace("₹", "").replace(",", "").strip()
+            cleaned = re.sub(r'[a-zA-Z\s]+', '', cleaned)  # Remove letters
             
-            # Extract number
-            number_match = re.search(r'([0-9.]+)', cleaned)
-            if not number_match:
+            if not cleaned:
                 return 0
             
-            number = float(number_match.group(1))
+            # Extract number
+            number = float(cleaned)
             
             # Check unit (crore or lakh)
-            if "cr" in cleaned.lower() or "crore" in cleaned.lower():
+            if "cr" in raw_value.lower() or "crore" in raw_value.lower():
                 # Convert crore to lakh (1 Cr = 100 Lakh)
                 return int(number * 100)
             else:

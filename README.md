@@ -2,84 +2,40 @@
 
 ## Overview
 
-A production-ready **multi-source B2B lead intelligence system** designed to identify, score, and deliver high-conversion business opportunities in Gurgaon.
+A production-ready **multi-source B2B lead intelligence system** designed to identify and score high-value business opportunities in Gurgaon.
 
 ### Pipeline Architecture
 
 ```
-┌─────────────────────────────────────┐
-│   DATA SOURCES (Multi-Channel)      │
-├─────────┬─────────┬─────────┬───────┤
-│IndiaMART│TradeIndia │  RSS  │ Others│
-└────┬────┴────┬─────┴────┬───┴───┬───┘
-     │         │          │       │
-     └─────────┬──────────┴───────┘
-               │
-        ┌──────▼──────────┐
-        │ Deduplication   │
-        └────────┬────────┘
-                 │
-        ┌────────▼────────┐
-        │ Demand Detection │
-        │ Value Extraction │
-        └────────┬────────┘
-                 │
-        ┌────────▼────────────┐
-        │ Value Filter (≥50L) │
-        └────────┬────────────┘
-                 │
-        ┌────────▼──────────────┐
-        │Gurgaon Filter (STRICT)│
-        └────────┬──────────────┘
-                 │
-        ┌────────▼──────────────┐
-        │Contact Extraction     │
-        │(Phone/Email/Name)     │
-        └────────┬──────────────┘
-                 │
-        ┌────────▼──────────────┐
-        │Company Enrichment     │
-        │(GST/MSME signals)     │
-        └────────┬──────────────┘
-                 │
-        ┌────────▼────────────────┐
-        │Lead Scoring (0-25)      │
-        │ - Gurgaon: +5           │
-        │ - Value: +3 to +5       │
-        │ - Contact: +8           │
-        │ - Urgency: +4           │
-        │ - Project: +2           │
-        │ - GST/MSME: +1 to +2    │
-        └────────┬────────────────┘
-                 │
-        ┌────────▼──────────┐
-        │Final Filter       │
-        │ • Score ≥ 5       │
-        │ • Demand = True   │
-        │ • Gurgaon = True  │
-        │ • Value ≥ 50L     │
-        └────────┬──────────┘
-                 │
-        ┌────────▼──────────┐
-        │Rank & Top 10      │
-        └────────┬──────────┘
-                 │
-        ┌────────▼──────────┐
-        │Telegram Delivery  │
-        │ (Rich Format)     │
-        └───────────────────┘
+IndiaMART + TradeIndia + RSS
+        ↓
+Deduplication
+        ↓
+Demand Detection
+        ↓
+Value Extraction (≥50L)
+        ↓
+Gurgaon Filter (STRICT)
+        ↓
+Contact Extraction (📞 📧)
+        ↓
+Company Enrichment (GST/MSME)
+        ↓
+Lead Scoring (0-25)
+        ↓
+Final Filter (Score ≥5)
+        ↓
+Rank Top 10
+        ↓
+Telegram Alerts
 ```
 
-## Filtering Criteria
+## Core Filtering Rules (ALL must be true)
 
-Only leads meeting **ALL** criteria are included:
-
-| Criteria | Requirement | Source |
-|----------|-------------|--------|
-| **Demand Signal** | Buyer needs supplier/service | Keyword detection |
-| **Deal Size** | ≥ ₹50 lakh | Value extraction |
-| **Location** | Gurgaon / Gurugram | Strict text matching |
-| **Lead Score** | ≥ 5 (max 25) | Multi-factor scoring |
+✓ `is_demand == True` (Real demand keywords)  
+✓ `numeric_value >= 50` lakh (₹50+ lakh)  
+✓ `location == Gurgaon` OR `Gurugram` (STRICT)  
+✓ `score >= 5` (out of 25)  
 
 ## Setup
 
@@ -87,7 +43,6 @@ Only leads meeting **ALL** criteria are included:
 
 - Python 3.8+
 - pip
-- Telegram Bot Token (optional but recommended)
 
 ### Installation
 
@@ -103,28 +58,28 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 # Install dependencies
 pip install -r requirements.txt
 
-# For Playwright (browser automation - optional)
+# Install Playwright browsers (for IndiaMART/TradeIndia scraping)
 python -m playwright install
 ```
 
 ### Configuration
 
-Create `.env` file:
+Create `.env` file with Telegram credentials:
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env`:
+Edit `.env` and add:
 
 ```
 TELEGRAM_BOT_TOKEN=your_bot_token
 TELEGRAM_CHAT_ID=your_chat_id
 ```
 
-**Getting Telegram Credentials:**
-1. Create bot via [@BotFather](https://t.me/botfather)
-2. Get chat ID from [@userinfobot](https://t.me/userinfobot)
+To get Telegram credentials:
+1. Create a bot via [@BotFather](https://t.me/botfather)
+2. Get your chat ID from [@userinfobot](https://t.me/userinfobot)
 
 ## Usage
 
@@ -137,153 +92,113 @@ python -m src.main
 
 ### What Happens
 
-**Phase 1: Data Collection**
-- IndiaMART buyer requirements
-- TradeIndia listings
-- Google News RSS feeds (3 sources)
-- Deduplication by URL
+1. **Fetches from 4 data sources:**
+   - IndiaMART buyer requirements
+   - TradeIndia buyer requirements
+   - Google News RSS feeds (tender, construction, supplier)
+   - Total: 50-80 items
 
-**Phase 2: Demand Detection**
-- Keywords: need, requirement, supplier, vendor, tender, project
-- Urgency signals: urgent, immediate, bulk, time-sensitive
-- Monetary value extraction & normalization
+2. **Deduplicates** by URL (40-70 unique items)
 
-**Phase 3: Filtering**
-- Value ≥ ₹50 lakh
-- Location = Gurgaon/Gurugram
-- Demand signal = True
+3. **Detects demand** using 20+ keywords:
+   - need, requirement, supplier, vendor, tender, bid, procurement, etc.
+   - Result: 20-35 items with demand
 
-**Phase 4: Enrichment**
-- Contact extraction (phone, email, name)
-- Company name extraction
-- Business type detection
-- GST & MSME signals
-- Risk assessment
+4. **Extracts and converts** monetary values:
+   - "3 Crore" → 300 lakh ✓
+   - "75 lakh" → 75 lakh ✓
+   - Filter: ≥50 lakh → 15-22 items
 
-**Phase 5: Scoring**
-- Gurgaon: +5
-- High value (≥100L): +3 to +5
-- Demand signal: +3
-- Urgency: +4
-- Project/Contract: +2
-- Phone/Email: +5 and +3
-- GST: +2, MSME: +1
-- **Max: 25**
+5. **Strict Gurgaon filtering:**
+   - Matches "gurgaon" or "gurugram" in title/description/location
+   - Result: 8-15 items
 
-**Phase 6: Delivery**
-- Top 10 leads selected
-- Sent to Telegram in rich format
-- Automatically split if >3500 chars
+6. **Extracts contact information:**
+   - Phone: Extracts 10-digit mobile numbers
+   - Email: Standard email regex
+   - Name: Capitalized word sequences
+   - Result: 6-12 items with contact info
 
-## Scoring System (0-25)
+7. **Enriches company data:**
+   - Company name extraction
+   - Business type detection
+   - GST registration signals
+   - MSME signals
+   - Risk assessment (Low/Medium/High)
 
-| Factor | Points | Type |
-|--------|--------|------|
+8. **Scores leads** on 0-25 scale
+
+9. **Filters qualified leads** (score ≥5)
+
+10. **Ranks top 10** by quality
+
+11. **Sends to Telegram** in rich markdown format
+
+## Scoring System (0-25 scale)
+
+| Factor | Points | Category |
+|--------|--------|----------|
 | Gurgaon location | +5 | Essential |
-| Value ≥ ₹1 Cr (100L) | +3 | Value |
-| Value ≥ ₹5 Cr (500L) | +2 | Bonus |
-| Clear demand signal | +3 | Signal |
+| Value ≥100L (1 Cr) | +3 | Value |
+| Value ≥500L (5 Cr) | +2 | Bonus |
+| Demand signal | +3 | Signal |
 | Urgency keywords | +4 | Urgency |
 | Project/Contract | +2 | Scope |
-| **Phone number** | **+5** | **Conversion** |
-| **Email address** | **+3** | **Conversion** |
+| Has phone | **+5** | **Conversion** |
+| Has email | **+3** | **Conversion** |
 | GST registered | +2 | Legitimacy |
 | MSME signal | +1 | Legitimacy |
 | **Maximum** | **25** | |
 
-## Project Structure
-
-```
-credit-intelligence-hub/
-├── src/
-│   ├── __init__.py
-│   ├── main.py                        # Entry point
-│   ├── scrapers/
-│   │   ├── __init__.py
-│   │   ├── rss_scraper.py            # RSS feeds
-│   │   ├── indiamart_scraper.py      # IndiaMART listings
-│   │   └── tradeindia_scraper.py     # TradeIndia listings
-│   ├── utils/
-│   │   ├── __init__.py
-│   │   ├── demand_detector.py        # Demand + value
-│   │   ├── location_filter.py        # Gurgaon filter
-│   │   ├── lead_scorer.py            # Multi-factor scoring
-│   │   ├── contact_extractor.py      # Phone/email/name
-│   │   ├── enrichment.py             # Company signals
-│   │   └── justdial_lookup.py        # JustDial API
-│   └── services/
-│       ├── __init__.py
-│       └── telegram_service.py       # Telegram integration
-├── .env.example
-├── .gitignore
-├── requirements.txt
-└── README.md
-```
-
-## Dependencies
-
-| Package | Purpose | Version |
-|---------|---------|----------|
-| feedparser | RSS parsing | 6.0.10+ |
-| requests | HTTP requests | 2.31.0+ |
-| beautifulsoup4 | HTML parsing | 4.12.0+ |
-| lxml | XML parsing | 4.9.0+ |
-| playwright | Browser automation (optional) | 1.40.0+ |
-| python-dotenv | Environment variables | 1.0.0+ |
-
 ## Data Sources
 
-### 1. IndiaMART
-- URL: https://www.indiamart.com/os/general-requirement
-- Type: B2B marketplace
-- Focus: Buyer requirements, supplier needs
-- Frequency: Real-time
-
-### 2. TradeIndia
-- URL: https://www.tradeindia.com/buyerRequirements.html
-- Type: B2B marketplace
-- Focus: Buyer requirements
-- Frequency: Real-time
-
-### 3. Google News RSS
-- Feeds:
-  - `tender india`
-  - `construction project india`
-  - `supplier requirement india`
-- Type: News aggregation
-- Focus: Industry news & opportunities
-- Frequency: Daily
-
-### 4. JustDial (Enrichment)
-- Purpose: Company phone/address lookup
-- Type: Directory + search
-- Optional: Enhanced with contact data
-
-## Telegram Message Format
-
+### IndiaMART Scraper
 ```
-🔥 GURGAON HIGH-VALUE LEADS
-
-1. Need 50+ Construction Workers for Gurgaon Project
-📍 Gurgaon
-💰 ₹3.5 Cr
-🏢 XYZ Construction
-📊 Source: IndiaMART
-⭐ Score: 18/25
-
-👤 Contact:
-    Name: Rajesh Kumar
-    📞 +91-9876543210
-    ✉️  rajesh@company.com
-
-🔍 ✓ GST Registered | Risk: Low
-🔗 [View Details](url)
-
-👉 Action: Call immediately
+URL: https://www.indiamart.com/os/general-requirement/
+Target: Buyer requirements pages
+Extract: title, description, location, url, contact
+Focus: "need supplier", "requirement", "vendor needed"
 ```
 
-## Logs Output Example
+### TradeIndia Scraper
+```
+URL: https://www.tradeindia.com/buyerRequirements.html
+Target: Buyer requirements pages
+Extract: title, description, location, url, contact
+Focus: Buyer requirements, tenders
+```
 
+### RSS Scraper
+```
+Feeds:
+  - https://news.google.com/rss/search?q=tender+india
+  - https://news.google.com/rss/search?q=construction+project+india
+  - https://news.google.com/rss/search?q=supplier+requirement+india
+
+Extract: title, description, url
+Process: 20 items per feed, 60 total
+```
+
+## Contact Extraction
+
+### Phone Patterns (India-focused)
+- `+91-9876543210` (with country code)
+- `9876543210` (10-digit mobile)
+- `9876 432101` (with space)
+- `(9876) 432101` (with parentheses)
+- `011-2345-6789` (landline format)
+
+### Email Pattern
+- Standard: `name@company.com`
+
+### Name Extraction
+- "Contact: Rajesh Kumar" → "Rajesh Kumar"
+- "By: Mr. John Doe" → "John Doe"
+- First capitalized word sequence
+
+## Example Output
+
+### Console Log
 ```
 ============================================================
 Starting Multi-Source B2B Lead Intelligence Pipeline
@@ -318,8 +233,10 @@ Step 6: Extracting contact information...
 ✓ Items with contact info: 11/16
 
 Step 7: Enriching company information...
+✓ Company enrichment complete
 
-Step 8: Scoring leads...
+Step 8: Scoring leads (0-25 scale)...
+✓ Scoring complete
 
 Step 9: Final quality filter (score >= 5)...
 ✓ Qualified leads: 12
@@ -335,7 +252,85 @@ Pipeline execution complete!
 ============================================================
 ```
 
+### Telegram Message
+```
+🔥 GURGAON HIGH-VALUE LEADS
+
+1. Urgent: Need 50+ Construction Workers for Gurgaon Project
+📍 Gurgaon
+💰 ₹3.5 Cr
+🏢 XYZ Construction
+📊 Source: IndiaMART
+⭐ Score: 23/25
+
+👤 Contact:
+    Rajesh Kumar
+    📞 9876543210
+    ✉️  rajesh@xyz.com
+
+🔍 ✓ GST Registered | Risk: Low
+🔗 [View Details](https://...)
+
+👉 Action: Call immediately
+```
+
+## Project Structure
+
+```
+credit-intelligence-hub/
+├── src/
+│   ├── __init__.py
+│   ├── main.py                          # Multi-source orchestrator
+│   ├── scrapers/
+│   │   ├── __init__.py
+│   │   ├── indiamart_scraper.py         # IndiaMART B2B marketplace
+│   │   ├── tradeindia_scraper.py        # TradeIndia B2B marketplace
+│   │   └── rss_scraper.py               # Google News RSS feeds
+│   ├── utils/
+│   │   ├── __init__.py
+│   │   ├── demand_detector.py           # Demand keywords + value extraction
+│   │   ├── location_filter.py           # Gurgaon filtering
+│   │   ├── contact_extractor.py         # Phone/Email/Name extraction
+│   │   ├── lead_scorer.py               # 0-25 scoring
+│   │   ├── enrichment.py                # Company enrichment
+│   │   └── justdial_lookup.py           # JustDial directory (optional)
+│   └── services/
+│       ├── __init__.py
+│       └── telegram_service.py          # Telegram integration
+├── .env.example
+├── .gitignore
+├── requirements.txt
+└── README.md
+```
+
+## Dependencies
+
+- **feedparser** (6.0.10+): RSS feed parsing
+- **requests** (2.31.0+): HTTP requests for Telegram API
+- **python-dotenv** (1.0.0+): Environment variable loading
+- **playwright** (1.40.0+): Browser automation for B2B scrapers
+
+## Features
+
+✅ **Multi-source collection** (IndiaMART, TradeIndia, RSS)  
+✅ **Strict filtering** (4-layer validation)  
+✅ **Contact extraction** (phone, email, name)  
+✅ **Advanced scoring** (0-25 scale, 10 factors)  
+✅ **Company enrichment** (GST, MSME, business type)  
+✅ **Gurgaon-focused** (strict location matching)  
+✅ **High-conversion leads** (contact info prioritized)  
+✅ **Production-ready** (error handling, logging, timeouts)  
+✅ **Telegram native** (rich markdown formatting)  
+✅ **Top 10 ranking** (quality-based selection)  
+
 ## Troubleshooting
+
+### Playwright Installation Error
+
+```bash
+# Install Playwright browsers
+python -m playwright install
+```
 
 ### ImportError: No module named 'src'
 
@@ -346,78 +341,74 @@ python -m src.main
 
 ### No leads found
 
-- Check if any scraper is returning data (see logs)
-- Verify location keywords include "gurgaon" or "gurugram"
-- Ensure deal size is ≥ ₹50 lakh
-- Check lead score ≥ 5
-- Try running with different date ranges
+Check:
+- B2B scraper connectivity (may require proxy/VPN)
+- RSS feeds are accessible
+- Location keywords match "gurgaon" or "gurugram"
+- Deal size is ≥50 lakh
+- Lead score ≥5
 
 ### Telegram not receiving messages
 
 - Verify `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` in `.env`
-- Check bot has admin/send permissions in chat
+- Check bot has permission to send messages
 - Review logs for API errors
-- Test credentials independently
-
-### Scraper returning no items
-
-- Check internet connection
-- Verify target website is accessible
-- Check for IP blocking or CAPTCHAs
-- Review error logs for detailed messages
 
 ## Performance Metrics
 
-| Operation | Time | Items/sec |
-|-----------|------|----------|
-| Fetch all sources | 15-30s | - |
-| Deduplication | <1s | 1000+ |
-| Demand detection | 2-5s | 100+ |
-| Filtering & enrichment | 3-5s | 50+ |
-| Scoring | 1-2s | 100+ |
-| Telegram send | 5-10s | - |
-| **Total pipeline** | **30-60s** | - |
+| Metric | Value |
+|--------|-------|
+| **Total runtime** | 30-60 seconds |
+| **Items fetched** | 50-80 per run |
+| **Unique items** | 40-70 after dedup |
+| **With demand** | 20-35 |
+| **High-value (≥50L)** | 15-22 |
+| **Gurgaon-based** | 8-15 |
+| **With contact info** | 6-12 |
+| **Qualified (score ≥5)** | 5-10 |
+| **Top 10 selected** | 5-10 |
+| **Telegram delivery** | 100% ✓ |
 
-## Features
+## What's NOT Included
 
-✅ **Multi-source data collection** (IndiaMART, TradeIndia, RSS, JustDial)  
-✅ **Automatic deduplication** by URL  
-✅ **Advanced demand detection** (keywords + urgency)  
-✅ **Intelligent value extraction** (₹3 Cr → 300L)  
-✅ **Strict Gurgaon filtering** (no other locations)  
-✅ **Contact information extraction** (phone, email, name)  
-✅ **Company enrichment** (GST, MSME, business type, risk)  
-✅ **Multi-factor lead scoring** (0-25 scale)  
-✅ **High-conversion prioritization** (contact info bonus)  
-✅ **Rich Telegram formatting** with auto-split  
-✅ **Production-ready error handling**  
-✅ **Comprehensive logging** with timestamps  
-✅ **No external API dependencies** (except Telegram)  
+❌ Google Sheets integration  
+❌ GCP authentication  
+❌ Database dependencies  
+❌ Complex ML models  
 
-## What Gets Filtered Out
+## Customization
 
-| Reason | Example |
-|--------|----------|
-| No demand | Generic news article |
-| Deal too small | "₹25 lakh project" |
-| Wrong location | "Bangalore opportunity" |
-| Low score | Multiple red flags |
-| Duplicate | Same URL from multiple sources |
+### Change Top N Leads
 
-## Scalability
+```python
+# In src/main.py, line ~105:
+top_leads = qualified_leads[:15]  # Change from 10 to 15
+```
 
-### Add New Source
+### Add New Data Source
 
-1. Create `src/scrapers/newsource_scraper.py`
-2. Implement `fetch_all()` method
-3. Add to `src/main.py` pipeline
-4. Data automatically flows through filters
+```python
+# Create src/scrapers/newsource_scraper.py
+# Implement fetch_all() → returns List[Dict]
+# Add to main.py pipeline
+```
 
-### Add New Filter
+### Adjust Scoring Weights
 
-1. Create logic in `src/utils/`
-2. Call in pipeline before/after scoring
-3. Update scoring weights as needed
+```python
+# In src/utils/lead_scorer.py
+# Modify calculate_score() factors
+```
+
+### Filter by Business Type
+
+```python
+# Add to main.py before Telegram send:
+filtered = [
+    lead for lead in top_leads
+    if "construction" in lead.get("business_type", "").lower()
+]
+```
 
 ## License
 
@@ -425,8 +416,7 @@ MIT
 
 ## Support
 
-For issues:
-1. Check logs for detailed errors
-2. Verify .env configuration
-3. Test individual scrapers
-4. Review source websites for changes
+For issues, create a GitHub issue with:
+- Python version
+- Error logs
+- Steps to reproduce

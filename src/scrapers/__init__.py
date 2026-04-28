@@ -1,1 +1,1 @@
-"""RSS scrapers module."""
+"""Data scrapers module."""

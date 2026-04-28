@@ -1,4 +1,4 @@
-"""Lead scoring logic with high-conversion focus."""
+"""Lead scoring logic (0-25 scale)."""
 
 import logging
 from typing import Dict, Any
@@ -7,32 +7,48 @@ logger = logging.getLogger(__name__)
 
 
 class LeadScorer:
-    """Scores leads based on multiple factors for high-conversion potential."""
+    """Scores leads based on multiple factors (0-25 scale)."""
     
     def calculate_score(self, item: Dict[str, Any]) -> int:
-        """Calculate lead score based on multiple factors (0-25)."""
+        """Calculate lead score based on multiple factors.
+        
+        Scoring breakdown:
+        - Gurgaon location: +5
+        - Value >= 100L (1 Cr): +3
+        - Value >= 500L (5 Cr): +2 (bonus)
+        - Demand signal: +3
+        - Urgency keywords: +4
+        - Project/Contract: +2
+        - Has phone: +5
+        - Has email: +3
+        - GST registered signal: +2
+        - MSME signal: +1
+        
+        Max: 25
+        """
         score = 0
         
-        # Base: Gurgaon location (essential)
+        # ====== LOCATION (Essential) ======
+        # Already filtered for Gurgaon, but double-check
         score += 5
         
-        # Bonus: High-value deals (>= 1 Cr = 100L)
-        if item.get("numeric_value", 0) >= 100:
+        # ====== DEAL VALUE ======
+        numeric_value = item.get("numeric_value", 0)
+        
+        if numeric_value >= 500:
+            score += 3 + 2  # Base + bonus
+        elif numeric_value >= 100:
             score += 3
         
-        # Very high value (>= 5 Cr = 500L)
-        if item.get("numeric_value", 0) >= 500:
-            score += 2
-        
-        # Bonus: Clear demand signal
+        # ====== DEMAND SIGNAL ======
         if item.get("is_demand", False):
             score += 3
         
-        # Bonus: Urgency keywords (immediate conversion signal)
+        # ====== URGENCY ======
         if item.get("has_urgency", False):
             score += 4
         
-        # Bonus: Project/contract keywords (defined scope)
+        # ====== PROJECT/CONTRACT ======
         title = item.get("title", "").lower()
         description = item.get("description", "").lower()
         combined = f"{title} {description}"
@@ -40,18 +56,19 @@ class LeadScorer:
         if "project" in combined or "contract" in combined or "tender" in combined:
             score += 2
         
-        # CRITICAL BONUS: Contact information available (conversion enabler)
+        # ====== CONTACT INFORMATION (HIGH CONVERSION) ======
         if item.get("phone"):
             score += 5
+        
         if item.get("email"):
             score += 3
         
-        # Bonus: GST signal (legitimate business)
+        # ====== BUSINESS LEGITIMACY SIGNALS ======
         if item.get("gst_active", False):
             score += 2
         
-        # Bonus: MSME signal (supportive ecosystem)
         if item.get("msme_signal", False):
             score += 1
         
-        return min(score, 25)  # Cap at 25
+        # Cap at 25
+        return min(score, 25)

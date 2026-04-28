@@ -11,18 +11,18 @@ class LocationFilter:
     GURGAON_VARIANTS = {
         "gurgaon",
         "gurugram",
-        "gurugram",
         "gurgaon, haryana",
         "gurugram, haryana",
         "ncr gurgaon",
         "gurgaon ncr",
+        "gurgaon, ncr",
         "gurgaon (haryana)",
         "gurugram (haryana)",
     }
     
     @staticmethod
     def is_gurgaon(text: str) -> bool:
-        """Check if text references Gurgaon/Gurugram location."""
+        """Check if text references Gurgaon/Gurugram location (STRICT)."""
         if not text:
             return False
         
