@@ -2,7 +2,7 @@ name: Follow-up Reminder
 
 on:
   schedule:
-    - cron: '0 4 * * *'
+    - cron: '0 */2 * * *'   # ✅ every 2 hours
   workflow_dispatch:
 
 jobs:
@@ -10,17 +10,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - run: pip install requests
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright
+        run: |
+          python -m playwright install
+          python -m playwright install-deps
 
       - name: Run Followups
         env:
-          MODE: followup
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
