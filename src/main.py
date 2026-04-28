@@ -1,5 +1,11 @@
 """Main entry point for B2B lead intelligence pipeline (FINAL STABLE VERSION)."""
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
+import logging
+import hashlib
 import logging
 import hashlib
 
@@ -12,7 +18,6 @@ from src.utils.contact_extractor import ContactExtractor
 from src.utils.lead_scorer import LeadScorer
 from src.utils.enrichment import CompanyEnricher
 from src.services.telegram_service import TelegramService
-
 # OPTIONAL: Google Sheet webhook
 from src.services.sheets_webhook import send_to_sheet
 
