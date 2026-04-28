@@ -1,11 +1,8 @@
 """Main entry point for B2B lead intelligence pipeline (FINAL STABLE VERSION)."""
 
 from dotenv import load_dotenv
-
 load_dotenv()
 
-import logging
-import hashlib
 import logging
 import hashlib
 
@@ -18,7 +15,6 @@ from src.utils.contact_extractor import ContactExtractor
 from src.utils.lead_scorer import LeadScorer
 from src.utils.enrichment import CompanyEnricher
 from src.services.telegram_service import TelegramService
-# OPTIONAL: Google Sheet webhook
 from src.services.sheets_webhook import send_to_sheet
 
 
@@ -58,13 +54,12 @@ def generate_id(item):
 # ============================================================
 # MAIN PIPELINE
 # ============================================================
-
-    def run_pipeline():
+def run_pipeline():
     logger.info("Starting pipeline")
 
     telegram = TelegramService()
 
-    # ✅ CORRECT PLACE
+    # ✅ TEST MESSAGE (you can remove later)
     telegram.send_message("🔥 TEST MESSAGE FROM GITHUB ACTION")
 
     telegram.send_message("🚀 Pipeline started")
@@ -124,13 +119,13 @@ def generate_id(item):
         return
 
     # ============================================================
-    # STEP 4: VALUE FILTER (TEMP DISABLED FOR DEBUG)
+    # STEP 4: VALUE FILTER (TEMP DISABLED)
     # ============================================================
     high_value_items = items_with_demand
-    logger.info(f"High value items (debug mode): {len(high_value_items)}")
+    logger.info(f"High value items: {len(high_value_items)}")
 
     # ============================================================
-    # STEP 5: LOCATION FILTER (RELAXED)
+    # STEP 5: LOCATION FILTER
     # ============================================================
     location_filter = LocationFilter()
 
@@ -173,7 +168,7 @@ def generate_id(item):
         item["score"] = scorer.calculate_score(item)
 
     # ============================================================
-    # STEP 9: FINAL FILTER (RELAXED)
+    # STEP 9: FINAL FILTER
     # ============================================================
     qualified = [x for x in gurgaon_items if x.get("score", 0) >= 5]
 
