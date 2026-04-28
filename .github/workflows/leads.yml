@@ -1,42 +1,37 @@
 name: Lead Engine
 
 on:
-schedule:
-- cron: '30 3 * * *'   # ✅ 9:00 AM IST (recommended)
-workflow_dispatch:       # ✅ manual run anytime
+  schedule:
+    - cron: '30 3 * * *'   # 9:00 AM IST
+  workflow_dispatch:
 
 jobs:
-run:
-runs-on: ubuntu-latest
+  run:
+    runs-on: ubuntu-latest
 
-steps:
-  # 1. Checkout repository
-  - name: Checkout repo
-    uses: actions/checkout@v4
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-  # 2. Setup Python
-  - name: Setup Python
-    uses: actions/setup-python@v5
-    with:
-      python-version: '3.10'
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
 
-  # 3. Install dependencies
-  - name: Install dependencies
-    run: |
-      pip install --upgrade pip
-      pip install -r requirements.txt
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
 
-  # 4. Install Playwright browsers (CRITICAL)
-  - name: Install Playwright browsers
-    run: |
-      python -m playwright install
-      python -m playwright install-deps
+      - name: Install Playwright browsers
+        run: |
+          python -m playwright install
+          python -m playwright install-deps
 
-  # 5. Run your pipeline
-  - name: Run Pipeline
-    env:
-      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-    run: |
-      export PYTHONPATH=src
-      python -m src.main
+      - name: Run Pipeline
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          export PYTHONPATH=src
+          python -m src.main
