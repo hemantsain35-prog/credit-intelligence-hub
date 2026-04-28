@@ -1,6 +1,8 @@
 """Main entry point for multi-source B2B lead intelligence pipeline."""
 
 import logging
+import hashlib
+
 from src.scrapers.indiamart_scraper import IndiaMART
 from src.scrapers.tradeindia_scraper import TradeIndia
 from src.scrapers.rss_scraper import RssScraper
@@ -10,6 +12,10 @@ from src.utils.contact_extractor import ContactExtractor
 from src.utils.lead_scorer import LeadScorer
 from src.utils.enrichment import CompanyEnricher
 from src.services.telegram_service import TelegramService
+
+# ✅ NEW: Sheets webhook
+from src.services.sheets_webhook import send_to_sheet
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,10 +35,15 @@ def deduplicate_items(items):
             seen_urls.add(url)
             unique_items.append(item)
         elif not url:
-            # Include items without URL (rare)
             unique_items.append(item)
     
     return unique_items
+
+
+# ✅ NEW: ID generator
+def generate_id(item):
+    text = (item.get("title", "") + item.get("url", "")).strip()
+    return hashlib.md5(text.encode()).hexdigest()
 
 
 def run_pipeline():
@@ -71,7 +82,6 @@ def run_pipeline():
         logger.error(f"✗ RSS error: {str(e)}")
         rss_items = []
     
-    # Combine all sources
     all_items = indiamart_items + tradeindia_items + rss_items
     logger.info(f"\n{'='*60}")
     logger.info(f"Total items from all sources: {len(all_items)}")
@@ -89,7 +99,7 @@ def run_pipeline():
     logger.info(f"After deduplication: {len(unique_items)} unique items")
     
     # ============================================================
-    # STEP 3: DEMAND DETECTION & VALUE EXTRACTION
+    # STEP 3: DEMAND DETECTION
     # ============================================================
     logger.info("\nStep 3: Detecting demand and extracting values...")
     detector = DemandDetector()
@@ -104,7 +114,7 @@ def run_pipeline():
     logger.info(f"✓ Demand detected in {len(items_with_demand)} items")
     
     # ============================================================
-    # STEP 4: VALUE FILTER (>= 50 LAKH)
+    # STEP 4: VALUE FILTER
     # ============================================================
     logger.info("\nStep 4: Filtering by deal size (>= 50 lakh)...")
     high_value_items = [
@@ -114,7 +124,7 @@ def run_pipeline():
     logger.info(f"✓ High-value deals (>= 50L): {len(high_value_items)}")
     
     # ============================================================
-    # STEP 5: GURGAON LOCATION FILTER (STRICT)
+    # STEP 5: LOCATION FILTER
     # ============================================================
     logger.info("\nStep 5: Filtering by Gurgaon location (STRICT)...")
     location_filter = LocationFilter()
@@ -137,19 +147,12 @@ def run_pipeline():
     contact_extractor = ContactExtractor()
     
     for item in gurgaon_items:
-        # Combine text for contact extraction
         full_text = f"{item.get('title', '')} {item.get('description', '')}"
         contacts = contact_extractor.extract(full_text)
         item.update(contacts)
     
-    items_with_contacts = [
-        item for item in gurgaon_items
-        if item.get("phone") or item.get("email")
-    ]
-    logger.info(f"✓ Items with contact info: {len(items_with_contacts)}/{len(gurgaon_items)}")
-    
     # ============================================================
-    # STEP 7: COMPANY ENRICHMENT
+    # STEP 7: ENRICHMENT
     # ============================================================
     logger.info("\nStep 7: Enriching company information...")
     enricher = CompanyEnricher()
@@ -158,59 +161,56 @@ def run_pipeline():
         enrichment = enricher.enrich(item)
         item.update(enrichment)
     
-    logger.info("✓ Company enrichment complete")
-    
     # ============================================================
-    # STEP 8: LEAD SCORING
+    # STEP 8: SCORING
     # ============================================================
-    logger.info("\nStep 8: Scoring leads (0-25 scale)...")
+    logger.info("\nStep 8: Scoring leads...")
     scorer = LeadScorer()
     
     for item in gurgaon_items:
         item["score"] = scorer.calculate_score(item)
     
-    logger.info("✓ Scoring complete")
-    
     # ============================================================
-    # STEP 9: FINAL FILTER (SCORE >= 5)
+    # STEP 9: FINAL FILTER
     # ============================================================
     logger.info("\nStep 9: Final quality filter (score >= 5)...")
     qualified_leads = [
         item for item in gurgaon_items
         if item.get("score", 0) >= 5
     ]
-    logger.info(f"✓ Qualified leads: {len(qualified_leads)}")
     
     if not qualified_leads:
         logger.info("No qualified leads found. Exiting.")
         return
     
     # ============================================================
-    # STEP 10: RANKING BY QUALITY
+    # STEP 10: RANKING
     # ============================================================
-    logger.info("\nStep 10: Ranking leads by quality...")
     qualified_leads.sort(key=lambda x: x.get("score", 0), reverse=True)
-    top_leads = qualified_leads[:10]  # Top 10 leads
-    logger.info(f"✓ Top {len(top_leads)} leads selected")
+    top_leads = qualified_leads[:10]
     
     # ============================================================
-    # STEP 11: TELEGRAM ALERTS
+    # ✅ NEW STEP: SAVE TO GOOGLE SHEET (CRM)
+    # ============================================================
+    logger.info("\nStep 10.1: Saving leads to CRM...")
+    
+    for lead in top_leads:
+        lead["id"] = generate_id(lead)
+        try:
+            send_to_sheet(lead)
+        except Exception as e:
+            logger.warning(f"Sheet save failed: {str(e)}")
+    
+    logger.info("✓ Leads saved to CRM")
+    
+    # ============================================================
+    # STEP 11: TELEGRAM
     # ============================================================
     logger.info("\nStep 11: Sending alerts to Telegram...")
     telegram = TelegramService()
-    success = telegram.send_leads(top_leads)
+    telegram.send_leads(top_leads)
     
-    if success:
-        logger.info(f"✓ Successfully sent {len(top_leads)} leads to Telegram")
-    else:
-        logger.warning("Telegram service not configured or failed")
-        logger.info(f"Would have sent {len(top_leads)} leads:")
-        for i, lead in enumerate(top_leads, 1):
-            logger.info(f"  {i}. {lead.get('title', 'N/A')} (Score: {lead.get('score', 0)})")
-    
-    logger.info(f"\n{'='*60}")
-    logger.info("Pipeline execution complete!")
-    logger.info(f"{'='*60}")
+    logger.info("\nPipeline execution complete!")
 
 
 if __name__ == "__main__":
