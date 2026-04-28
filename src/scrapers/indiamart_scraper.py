@@ -63,10 +63,18 @@ class IndiaMART:
     def _parse_item(self, elem) -> Dict[str, Any]:
         """Parse IndiaMART requirement item."""
         try:
-            title = elem.query_selector(".BrTitle")?.text_content("").strip() or ""
-            description = elem.query_selector(".BrDesc")?.text_content("").strip() or ""
-            location = elem.query_selector(".BrLoc")?.text_content("").strip() or ""
-            url = elem.query_selector("a")?.get_attribute("href") or ""
+            # FIXED: Removed ?. syntax
+            title_el = elem.query_selector(".BrTitle")
+            title = title_el.text_content().strip() if title_el else ""
+
+            desc_el = elem.query_selector(".BrDesc")
+            description = desc_el.text_content().strip() if desc_el else ""
+
+            loc_el = elem.query_selector(".BrLoc")
+            location = loc_el.text_content().strip() if loc_el else ""
+
+            link_el = elem.query_selector("a")
+            url = link_el.get_attribute("href") if link_el else ""
             
             if not title or not url:
                 return None
