@@ -1,3 +1,5 @@
+print("🔥 NEW VERSION DEPLOYED")
+
 def run_pipeline():
     logger.info("="*60)
     logger.info("Starting Multi-Source B2B Lead Intelligence Pipeline")
