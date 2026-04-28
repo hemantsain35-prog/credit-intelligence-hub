@@ -2,12 +2,12 @@ name: Follow-up Reminder
 
 on:
   schedule:
-    - cron: '0 */2 * * *'   # ✅ every 2 hours
+    - cron: '0 */2 * * *'   # every 2 hours
   workflow_dispatch:
 
 jobs:
   run:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04   # ✅ stable runner
 
     steps:
       - name: Checkout repo
@@ -23,15 +23,16 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Install Playwright
+      # ✅ FIXED PLAYWRIGHT STEP
+      - name: Install Playwright browsers
         run: |
-          python -m playwright install
-          python -m playwright install-deps
+          python -m playwright install chromium
 
       - name: Run Followups
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GOOGLE_SHEET_WEBHOOK_URL: ${{ secrets.GOOGLE_SHEET_WEBHOOK_URL }}   # ✅ keep consistent
         run: |
           export PYTHONPATH=src
           python -m src.main
