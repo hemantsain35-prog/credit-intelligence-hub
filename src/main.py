@@ -12,10 +12,11 @@ from src.scrapers.rss_scraper import RssScraper
 from src.utils.demand_detector import DemandDetector
 from src.utils.location_filter import LocationFilter
 from src.utils.contact_extractor import ContactExtractor
-from src.utils.lead_scorer import LeadScorer
+from src.utils.lead_scorer import LeadScorer, classify_lead
 from src.utils.enrichment import CompanyEnricher
 from src.services.telegram_service import TelegramService
 from src.services.sheets_webhook import send_to_sheet
+from src.utils.dedup_store import load_ids, save_ids, is_new_lead
 
 
 # ============================================================
@@ -91,7 +92,7 @@ def run_pipeline():
         return
 
     # ============================================================
-    # STEP 2: DEDUPLICATION
+    # STEP 2: DEDUPLICATION (RUN LEVEL)
     # ============================================================
     unique_items = deduplicate_items(all_items)
     logger.info(f"After deduplication: {len(unique_items)}")
@@ -115,7 +116,7 @@ def run_pipeline():
         return
 
     # ============================================================
-    # STEP 4: LOCATION FILTER (ADVANCED)
+    # STEP 4: LOCATION FILTER
     # ============================================================
     location_filter = LocationFilter()
 
@@ -150,15 +151,16 @@ def run_pipeline():
         item.update(enricher.enrich(item))
 
     # ============================================================
-    # STEP 7: SCORING
+    # STEP 7: SCORING + CLASSIFICATION
     # ============================================================
     scorer = LeadScorer()
 
     for item in filtered_items:
         item["score"] = scorer.calculate_score(item)
+        item["lead_type"] = classify_lead(item)
 
     # ============================================================
-    # STEP 8: FINAL FILTER (RELAXED)
+    # STEP 8: FILTER
     # ============================================================
     qualified = [x for x in filtered_items if x.get("score", 0) >= 3]
 
@@ -195,17 +197,39 @@ def run_pipeline():
     logger.info(f"Final leads count: {len(top_leads)}")
 
     # ============================================================
-    # STEP 11: SAVE TO SHEET
+    # STEP 11: PERMANENT DEDUP (ACROSS DAYS)
+    # ============================================================
+    seen_ids = load_ids()
+    final_leads = []
+
+    for lead in top_leads:
+        lead_id = generate_id(lead)
+
+        if is_new_lead(lead_id, seen_ids):
+            lead["id"] = lead_id
+            final_leads.append(lead)
+            seen_ids.add(lead_id)
+
+    save_ids(seen_ids)
+    top_leads = final_leads
+
+    logger.info(f"After permanent dedup: {len(top_leads)}")
+
+    if not top_leads:
+        telegram.send_message("⚠ All leads already processed")
+        return
+
+    # ============================================================
+    # STEP 12: SAVE TO SHEET
     # ============================================================
     for lead in top_leads:
-        lead["id"] = generate_id(lead)
         try:
             send_to_sheet(lead)
         except Exception as e:
             logger.warning(f"Sheet error: {e}")
 
     # ============================================================
-    # STEP 12: TELEGRAM
+    # STEP 13: TELEGRAM
     # ============================================================
     success = telegram.send_leads(top_leads)
 
@@ -221,5 +245,5 @@ def run_pipeline():
 # ENTRY POINT
 # ============================================================
 if __name__ == "__main__":
-    print("🔥 PRODUCTION VERSION DEPLOYED")
+    print("🔥 FINAL PRODUCTION SYSTEM LIVE")
     run_pipeline()
