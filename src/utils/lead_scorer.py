@@ -27,10 +27,15 @@ class LeadScorer:
         Max: 25
         """
         score = 0
+
+        if item.get("funding_intent"):
+            score += 5   # 🔥 BIG BOOST
         
-        # ====== LOCATION (Essential) ======
-        # Already filtered for Gurgaon, but double-check
-        score += 5
+        if item.get("numeric_value", 0) >= 50:
+            score += 3
+        
+        if item.get("phone"):
+            score += 2
         
         # ====== DEAL VALUE ======
         numeric_value = item.get("numeric_value", 0)
