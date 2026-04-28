@@ -58,10 +58,18 @@ class TradeIndia:
     def _parse_item(self, elem) -> Dict[str, Any]:
         """Parse TradeIndia requirement item."""
         try:
-            title = elem.query_selector(".req-title")?.text_content("").strip() or ""
-            description = elem.query_selector(".req-desc")?.text_content("").strip() or ""
-            location = elem.query_selector(".req-location")?.text_content("").strip() or ""
-            url = elem.query_selector("a")?.get_attribute("href") or ""
+            # FIXED: removed ?. syntax
+            title_el = elem.query_selector(".req-title")
+            title = title_el.text_content().strip() if title_el else ""
+
+            desc_el = elem.query_selector(".req-desc")
+            description = desc_el.text_content().strip() if desc_el else ""
+
+            loc_el = elem.query_selector(".req-location")
+            location = loc_el.text_content().strip() if loc_el else ""
+
+            link_el = elem.query_selector("a")
+            url = link_el.get_attribute("href") if link_el else ""
             
             if not title or not url:
                 return None
