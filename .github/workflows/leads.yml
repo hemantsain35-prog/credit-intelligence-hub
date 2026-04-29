@@ -2,12 +2,12 @@ name: Lead Engine
 
 on:
   schedule:
-    - cron: '30 3 * * *'   # 9:00 AM IST
+    - cron: '0 */4 * * *'   # ✅ Every 4 hours (UTC)
   workflow_dispatch:
 
 jobs:
   run:
-    runs-on: ubuntu-22.04   # ✅ more stable than ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout repo
@@ -18,21 +18,30 @@ jobs:
         with:
           python-version: '3.10'
 
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      # ✅ FIXED PLAYWRIGHT STEP
-      - name: Install Playwright browsers
+      - name: Install Playwright (Chromium only)
         run: |
-          python -m playwright install chromium
+          python -m playwright install --with-deps chromium
 
       - name: Run Pipeline
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           GOOGLE_SHEET_WEBHOOK_URL: ${{ secrets.GOOGLE_SHEET_WEBHOOK_URL }}
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          GST_API_KEY: ${{ secrets.GST_API_KEY }}
         run: |
           export PYTHONPATH=src
           python -m src.main
