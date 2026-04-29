@@ -7,27 +7,27 @@ logger = logging.getLogger(__name__)
 
 
 class LeadScorer:
-    """Scores leads based on multiple factors (0-25 scale)."""
+    """Scores leads based on business + funding signals (0–25 scale)."""
 
     def calculate_score(self, item: Dict[str, Any]) -> int:
         score = 0
 
         # ============================================================
-        # 🔥 FUNDING INTENT (MOST IMPORTANT)
+        # 🔥 FUNDING INTENT (highest priority)
         # ============================================================
         if item.get("funding_intent"):
-            score += 6   # 🔥 Strong boost
+            score += 6
 
         # ============================================================
         # 💰 DEAL VALUE
         # ============================================================
-        numeric_value = item.get("numeric_value", 0)
+        value = item.get("numeric_value", 0)
 
-        if numeric_value >= 500:
-            score += 5   # very high deal
-        elif numeric_value >= 100:
+        if value >= 500:
+            score += 5
+        elif value >= 100:
             score += 3
-        elif numeric_value >= 50:
+        elif value >= 50:
             score += 1
 
         # ============================================================
@@ -43,7 +43,7 @@ class LeadScorer:
             score += 4
 
         # ============================================================
-        # 🏗 PROJECT / CONTRACT SIGNAL
+        # 🏗 PROJECT / CONTRACT
         # ============================================================
         text = f"{item.get('title','')} {item.get('description','')}".lower()
 
@@ -54,34 +54,49 @@ class LeadScorer:
         # 📞 CONTACT (VERY IMPORTANT)
         # ============================================================
         if item.get("phone"):
-            score += 5
+            score += 7   # 🔥 strongest practical signal
 
         if item.get("email"):
             score += 2
 
         # ============================================================
-        # 🧾 BUSINESS LEGIT SIGNALS
+        # 🏢 CORPORATE SIGNALS
         # ============================================================
-        if item.get("gst_active"):
+        if item.get("is_registered"):
             score += 2
 
-        if item.get("msme_signal"):
-            score += 1
+        if item.get("industry") == "manufacturing":
+            score += 3
+
+        if item.get("funding_signal"):
+            score += 4
+
+        if item.get("new_business"):
+            score += 2
 
         # ============================================================
-        # 🔒 FINAL CAP
+        # 🧾 GST VERIFIED
         # ============================================================
+        if item.get("gst_verified"):
+            score += 3
+
+        # ============================================================
+        # 📈 GROWTH SIGNAL
+        # ============================================================
+        if item.get("growth_signal"):
+            score += 4
+
         return min(score, 25)
 
 
 # ============================================================
-# 🔥 CLASSIFICATION (IMPORTANT)
+# 🔥 CLASSIFICATION
 # ============================================================
 def classify_lead(item: Dict[str, Any]) -> str:
     score = item.get("score", 0)
     funding = item.get("funding_intent", False)
 
-    if funding and score >= 7:
+    if funding and score >= 8:
         return "🔥 HOT"
     elif score >= 4:
         return "🟡 WARM"
