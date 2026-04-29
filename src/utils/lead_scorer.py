@@ -8,24 +8,24 @@ class LeadScorer:
         rating = item.get("rating", 0) or 0
 
         # =========================
-        # 🔥 INDUSTRY (MANDATORY)
+        # 🔥 INDUSTRY (HIGH VALUE)
         # =========================
         if any(k in title for k in [
             "manufacturer", "factory", "exporter",
             "supplier", "industrial", "fabrication",
             "trader", "wholesaler"
         ]):
-            score += 8
+            score += 6
         else:
-            return -100   # reject
+            score -= 3   # not reject, just lower priority
 
         # =========================
-        # 📞 PHONE (MANDATORY)
+        # 📞 CONTACT (IMPORTANT)
         # =========================
         if item.get("phone"):
-            score += 5
+            score += 4
         else:
-            return -100
+            score -= 2
 
         # =========================
         # 🌐 WEBSITE (SERIOUS BUSINESS)
@@ -34,29 +34,31 @@ class LeadScorer:
             score += 3
 
         # =========================
-        # 📊 GROWTH SIGNAL (BEST RANGE)
+        # 📊 GROWTH SIGNAL
         # =========================
         if 5 <= reviews <= 120:
-            score += 6
+            score += 5
         elif reviews < 5:
-            score += 2  # very new business
+            score += 2
         elif reviews > 300:
-            score -= 4  # too big
+            score -= 3
 
         # =========================
         # ⭐ TRUST
         # =========================
-        if rating >= 3.5:
+        if rating >= 4:
             score += 2
+        elif rating < 3:
+            score -= 2
 
         # =========================
-        # 🚫 REMOVE LOW VALUE
+        # 🚫 LOW VALUE FILTER (SOFT)
         # =========================
         if any(k in title for k in [
             "salon", "spa", "gym", "cafe",
             "restaurant", "consultant",
             "digital marketing", "coaching"
         ]):
-            return -100
+            score -= 6
 
         return score
