@@ -1,4 +1,4 @@
-"""Main entry point for B2B lead intelligence pipeline (FINAL CLEAN VERSION)."""
+"""Main entry point for B2B lead intelligence pipeline (FINAL BUSINESS VERSION)."""
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -9,8 +9,8 @@ import random
 
 from src.scrapers.indiamart_scraper import IndiaMART
 from src.scrapers.tradeindia_scraper import TradeIndia
-from src.scrapers.rss_scraper import RssScraper
 from src.scrapers.justdial_scraper import JustdialScraper
+from src.scrapers.google_maps_scraper import GoogleMapsScraper
 
 from src.utils.demand_detector import DemandDetector
 from src.utils.location_filter import LocationFilter
@@ -52,7 +52,7 @@ def deduplicate_items(items):
 
 
 def generate_id(item):
-    """🔥 STRONG ID (prevents repeat leads)"""
+    """Strong ID to prevent duplicate leads"""
     text = (
         item.get("title", "") +
         item.get("company", "") +
@@ -73,7 +73,7 @@ def run_pipeline():
     telegram.send_message("🚀 Pipeline started")
 
     # ============================================================
-    # STEP 1: FETCH DATA
+    # STEP 1: FETCH DATA (NO RSS)
     # ============================================================
     logger.info("Step 1: Fetching data...")
 
@@ -90,18 +90,19 @@ def run_pipeline():
         tradeindia_items = []
 
     try:
-        rss_items = RssScraper().fetch_all()
-    except Exception as e:
-        logger.error(f"RSS error: {e}")
-        rss_items = []
-
-    try:
         justdial_items = JustdialScraper().fetch_all()
     except Exception as e:
         logger.error(f"Justdial error: {e}")
         justdial_items = []
 
-    all_items = indiamart_items + tradeindia_items + rss_items + justdial_items
+    try:
+        maps_items = GoogleMapsScraper().fetch_all()
+    except Exception as e:
+        logger.error(f"Google Maps error: {e}")
+        maps_items = []
+
+    # 🔥 FINAL SOURCES (NO NEWS)
+    all_items = indiamart_items + tradeindia_items + justdial_items + maps_items
     logger.info(f"Total items fetched: {len(all_items)}")
 
     if not all_items:
@@ -109,7 +110,7 @@ def run_pipeline():
         return
 
     # ============================================================
-    # STEP 2: DEDUP (RUN LEVEL)
+    # STEP 2: DEDUP
     # ============================================================
     unique_items = deduplicate_items(all_items)
     logger.info(f"After deduplication: {len(unique_items)}")
@@ -134,7 +135,7 @@ def run_pipeline():
         return
 
     # ============================================================
-    # STEP 4: LOCATION FILTER (RELAXED)
+    # STEP 4: LOCATION FILTER
     # ============================================================
     location_filter = LocationFilter()
 
@@ -145,10 +146,10 @@ def run_pipeline():
         )
     ]
 
-    # 🔥 fallback if too strict
+    # fallback
     if len(filtered_items) < 10:
         logger.warning("⚠ Expanding location filter")
-        filtered_items = items_with_demand[:20]
+        filtered_items = items_with_demand[:30]
 
     logger.info(f"Location filtered: {len(filtered_items)}")
 
@@ -160,6 +161,18 @@ def run_pipeline():
     for item in filtered_items:
         text = f"{item.get('title','')} {item.get('description','')}"
         item.update(extractor.extract(text))
+
+    # 🔥 ONLY KEEP CALLABLE LEADS
+    filtered_items = [
+        x for x in filtered_items
+        if x.get("phone")
+    ]
+
+    logger.info(f"After contact filter: {len(filtered_items)}")
+
+    if not filtered_items:
+        telegram.send_message("⚠ No callable leads found")
+        return
 
     # ============================================================
     # STEP 6: ENRICHMENT
@@ -179,24 +192,23 @@ def run_pipeline():
         item["lead_type"] = classify_lead(item)
 
     # ============================================================
-    # STEP 8: FILTER (RELAXED)
+    # STEP 8: FILTER
     # ============================================================
     qualified = [x for x in filtered_items if x.get("score", 0) >= 2]
 
     if not qualified:
-        logger.warning("⚠ No qualified leads — fallback used")
         qualified = filtered_items[:15]
 
     # ============================================================
-    # STEP 9: SORT + RANDOMIZE
+    # STEP 9: SORT + RANDOM
     # ============================================================
     qualified.sort(key=lambda x: x.get("score", 0), reverse=True)
-    top_leads = qualified[:20]
+    top_leads = qualified[:25]
 
     random.shuffle(top_leads)
 
     # ============================================================
-    # STEP 10: FINAL DEDUP (NO REPEAT LEADS)
+    # STEP 10: FINAL DEDUP (NO REPEAT)
     # ============================================================
     seen_ids = load_ids()
     final_leads = []
@@ -245,5 +257,5 @@ def run_pipeline():
 # ENTRY POINT
 # ============================================================
 if __name__ == "__main__":
-    print("🔥 FINAL SYSTEM LIVE")
+    print("🔥 BUSINESS LEAD SYSTEM LIVE")
     run_pipeline()
