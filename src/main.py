@@ -17,10 +17,12 @@ from src.utils.location_filter import LocationFilter
 from src.utils.contact_extractor import ContactExtractor
 from src.utils.lead_scorer import LeadScorer, classify_lead
 from src.utils.enrichment import CompanyEnricher
+from src.utils.corporate_enricher import CorporateEnricher
+from src.utils.growth_detector import GrowthDetector
+from src.utils.gst_verifier import GSTVerifier
 
 from src.services.telegram_service import TelegramService
 from src.services.sheets_webhook import send_to_sheet
-
 from src.utils.dedup_store import load_ids, save_ids
 
 
@@ -52,7 +54,6 @@ def deduplicate_items(items):
 
 
 def generate_id(item):
-    """Strong ID to prevent duplicate leads"""
     text = (
         item.get("title", "") +
         item.get("company", "") +
@@ -70,40 +71,31 @@ def run_pipeline():
     logger.info("🚀 Starting pipeline")
 
     telegram = TelegramService()
-    telegram.send_message("🚀 Pipeline started")
 
     # ============================================================
-    # STEP 1: FETCH DATA (NO RSS)
+    # STEP 1: FETCH DATA
     # ============================================================
-    logger.info("Step 1: Fetching data...")
-
     try:
         indiamart_items = IndiaMART().fetch_all()
-    except Exception as e:
-        logger.error(f"IndiaMART error: {e}")
+    except:
         indiamart_items = []
 
     try:
         tradeindia_items = TradeIndia().fetch_all()
-    except Exception as e:
-        logger.error(f"TradeIndia error: {e}")
+    except:
         tradeindia_items = []
 
     try:
         justdial_items = JustdialScraper().fetch_all()
-    except Exception as e:
-        logger.error(f"Justdial error: {e}")
+    except:
         justdial_items = []
 
     try:
         maps_items = GoogleMapsScraper().fetch_all()
-    except Exception as e:
-        logger.error(f"Google Maps error: {e}")
+    except:
         maps_items = []
 
-    # 🔥 FINAL SOURCES (NO NEWS)
     all_items = indiamart_items + tradeindia_items + justdial_items + maps_items
-    logger.info(f"Total items fetched: {len(all_items)}")
 
     if not all_items:
         telegram.send_message("⚠ No data fetched")
@@ -113,25 +105,26 @@ def run_pipeline():
     # STEP 2: DEDUP
     # ============================================================
     unique_items = deduplicate_items(all_items)
-    logger.info(f"After deduplication: {len(unique_items)}")
 
     # ============================================================
-    # STEP 3: DEMAND DETECTION
+    # STEP 3: DEMAND HANDLING
     # ============================================================
     detector = DemandDetector()
-    items_with_demand = []
+    processed = []
 
     for item in unique_items:
-        result = detector.analyze(item)
+        source = item.get("source", "").lower()
 
-        if result.get("is_demand"):
-            item.update(result)
-            items_with_demand.append(item)
+        if source in ["googlemaps", "justdial"]:
+            processed.append(item)
+        else:
+            result = detector.analyze(item)
+            if result.get("is_demand"):
+                item.update(result)
+                processed.append(item)
 
-    logger.info(f"Demand items: {len(items_with_demand)}")
-
-    if not items_with_demand:
-        telegram.send_message("⚠ No demand detected")
+    if not processed:
+        telegram.send_message("⚠ No leads found")
         return
 
     # ============================================================
@@ -139,116 +132,93 @@ def run_pipeline():
     # ============================================================
     location_filter = LocationFilter()
 
-    filtered_items = [
-        item for item in items_with_demand
+    filtered = [
+        x for x in processed
         if location_filter.is_target_location(
-            f"{item.get('title','')} {item.get('description','')} {item.get('location','')}"
+            f"{x.get('title','')} {x.get('description','')} {x.get('location','')}"
         )
     ]
 
-    # fallback
-    if len(filtered_items) < 10:
-        logger.warning("⚠ Expanding location filter")
-        filtered_items = items_with_demand[:30]
-
-    logger.info(f"Location filtered: {len(filtered_items)}")
+    if len(filtered) < 10:
+        filtered = processed[:30]
 
     # ============================================================
     # STEP 5: CONTACT EXTRACTION
     # ============================================================
     extractor = ContactExtractor()
 
-    for item in filtered_items:
+    for item in filtered:
         text = f"{item.get('title','')} {item.get('description','')}"
         item.update(extractor.extract(text))
 
-    # 🔥 ONLY KEEP CALLABLE LEADS
-    filtered_items = [
-        x for x in filtered_items
-        if x.get("phone")
-    ]
+    # ONLY CALLABLE
+    filtered = [x for x in filtered if x.get("phone")]
 
-    logger.info(f"After contact filter: {len(filtered_items)}")
-
-    if not filtered_items:
-        telegram.send_message("⚠ No callable leads found")
+    if not filtered:
+        telegram.send_message("⚠ No callable leads")
         return
 
     # ============================================================
     # STEP 6: ENRICHMENT
     # ============================================================
     enricher = CompanyEnricher()
+    corporate = CorporateEnricher()
+    growth = GrowthDetector()
+    gst = GSTVerifier()
 
-    for item in filtered_items:
+    for item in filtered:
         item.update(enricher.enrich(item))
+        item.update(corporate.enrich(item))
+        item.update(growth.detect(item))
+        item.update(gst.verify(item))
 
     # ============================================================
-    # STEP 7: SCORING + CLASSIFICATION
+    # STEP 7: SCORING
     # ============================================================
     scorer = LeadScorer()
 
-    for item in filtered_items:
+    for item in filtered:
         item["score"] = scorer.calculate_score(item)
         item["lead_type"] = classify_lead(item)
 
     # ============================================================
-    # STEP 8: FILTER
+    # STEP 8: FILTER + SORT
     # ============================================================
-    qualified = [x for x in filtered_items if x.get("score", 0) >= 2]
+    qualified = [x for x in filtered if x.get("score", 0) >= 2]
 
-    if not qualified:
-        qualified = filtered_items[:15]
-
-    # ============================================================
-    # STEP 9: SORT + RANDOM
-    # ============================================================
     qualified.sort(key=lambda x: x.get("score", 0), reverse=True)
-    top_leads = qualified[:25]
 
-    random.shuffle(top_leads)
+    random.shuffle(qualified)
 
     # ============================================================
-    # STEP 10: FINAL DEDUP (NO REPEAT)
+    # STEP 9: FINAL DEDUP
     # ============================================================
     seen_ids = load_ids()
-    final_leads = []
+    final = []
 
-    for lead in top_leads:
+    for lead in qualified:
         lead_id = generate_id(lead)
 
         if lead_id not in seen_ids:
             lead["id"] = lead_id
-            final_leads.append(lead)
+            final.append(lead)
             seen_ids.add(lead_id)
 
     save_ids(seen_ids)
 
-    if not final_leads:
+    if not final:
         telegram.send_message("⚠ No new leads today")
         return
 
-    final_leads = final_leads[:15]
-
-    logger.info(f"Final leads count: {len(final_leads)}")
+    final = final[:15]
 
     # ============================================================
-    # STEP 11: SAVE TO SHEET
+    # STEP 10: SAVE + SEND
     # ============================================================
-    for lead in final_leads:
-        try:
-            send_to_sheet(lead)
-        except Exception as e:
-            logger.warning(f"Sheet error: {e}")
+    for lead in final:
+        send_to_sheet(lead)
 
-    # ============================================================
-    # STEP 12: TELEGRAM
-    # ============================================================
-    success = telegram.send_leads(final_leads)
-
-    if success:
-        logger.info("✅ Telegram sent")
-    else:
-        logger.error("❌ Telegram failed")
+    telegram.send_leads(final)
 
     logger.info("🎯 PIPELINE COMPLETE")
 
@@ -257,5 +227,5 @@ def run_pipeline():
 # ENTRY POINT
 # ============================================================
 if __name__ == "__main__":
-    print("🔥 BUSINESS LEAD SYSTEM LIVE")
+    print("🔥 FINAL SYSTEM LIVE")
     run_pipeline()
