@@ -1,4 +1,4 @@
-"""Main entry point for B2B lead intelligence pipeline (FINAL BUSINESS VERSION)."""
+"""Main entry point for B2B lead intelligence pipeline (FINAL FIXED VERSION)."""
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -11,6 +11,7 @@ from src.scrapers.indiamart_scraper import IndiaMART
 from src.scrapers.tradeindia_scraper import TradeIndia
 from src.scrapers.justdial_scraper import JustdialScraper
 from src.scrapers.google_maps_scraper import GoogleMapsScraper
+from src.scrapers.rss_scraper import RssScraper   # ✅ ADDED BACK (STABLE SOURCE)
 
 from src.utils.demand_detector import DemandDetector
 from src.utils.location_filter import LocationFilter
@@ -73,29 +74,53 @@ def run_pipeline():
     telegram = TelegramService()
 
     # ============================================================
-    # STEP 1: FETCH DATA
+    # STEP 1: FETCH DATA (WITH LOGGING)
     # ============================================================
     try:
         indiamart_items = IndiaMART().fetch_all()
-    except:
+    except Exception as e:
+        logger.error(f"IndiaMART error: {e}")
         indiamart_items = []
 
     try:
         tradeindia_items = TradeIndia().fetch_all()
-    except:
+    except Exception as e:
+        logger.error(f"TradeIndia error: {e}")
         tradeindia_items = []
 
     try:
         justdial_items = JustdialScraper().fetch_all()
-    except:
+    except Exception as e:
+        logger.error(f"Justdial error: {e}")
         justdial_items = []
 
     try:
         maps_items = GoogleMapsScraper().fetch_all()
-    except:
+    except Exception as e:
+        logger.error(f"Google Maps error: {e}")
         maps_items = []
 
-    all_items = indiamart_items + tradeindia_items + justdial_items + maps_items
+    # ✅ ALWAYS WORKING FALLBACK
+    try:
+        rss_items = RssScraper().fetch_all()
+    except Exception as e:
+        logger.error(f"RSS error: {e}")
+        rss_items = []
+
+    # ✅ DEBUG COUNTS
+    logger.info(f"IndiaMART: {len(indiamart_items)}")
+    logger.info(f"TradeIndia: {len(tradeindia_items)}")
+    logger.info(f"Justdial: {len(justdial_items)}")
+    logger.info(f"GoogleMaps: {len(maps_items)}")
+    logger.info(f"RSS: {len(rss_items)}")
+
+    all_items = (
+        indiamart_items +
+        tradeindia_items +
+        justdial_items +
+        maps_items +
+        rss_items
+    )
 
     if not all_items:
         telegram.send_message("⚠ No data fetched")
@@ -107,7 +132,7 @@ def run_pipeline():
     unique_items = deduplicate_items(all_items)
 
     # ============================================================
-    # STEP 3: DEMAND HANDLING
+    # STEP 3: DEMAND HANDLING (RELAXED)
     # ============================================================
     detector = DemandDetector()
     processed = []
@@ -115,6 +140,7 @@ def run_pipeline():
     for item in unique_items:
         source = item.get("source", "").lower()
 
+        # ✅ allow directory + maps directly
         if source in ["googlemaps", "justdial"]:
             processed.append(item)
         else:
@@ -128,7 +154,7 @@ def run_pipeline():
         return
 
     # ============================================================
-    # STEP 4: LOCATION FILTER
+    # STEP 4: LOCATION FILTER (RELAXED)
     # ============================================================
     location_filter = LocationFilter()
 
@@ -140,6 +166,7 @@ def run_pipeline():
     ]
 
     if len(filtered) < 10:
+        logger.warning("⚠ Location fallback used")
         filtered = processed[:30]
 
     # ============================================================
@@ -151,8 +178,11 @@ def run_pipeline():
         text = f"{item.get('title','')} {item.get('description','')}"
         item.update(extractor.extract(text))
 
-    # ONLY CALLABLE
-    filtered = [x for x in filtered if x.get("phone")]
+    # ✅ RELAXED (IMPORTANT FIX)
+    filtered = [
+        x for x in filtered
+        if x.get("phone") or x.get("url")
+    ]
 
     if not filtered:
         telegram.send_message("⚠ No callable leads")
