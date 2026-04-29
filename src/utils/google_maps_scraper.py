@@ -17,49 +17,58 @@ class GoogleMapsScraper:
         results = []
 
         for query in queries:
-            url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
+            try:
+                url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
 
-            params = {
-                "query": query,
-                "key": self.api_key
-            }
+                params = {
+                    "query": query,
+                    "key": self.api_key
+                }
 
-            res = requests.get(url, params=params)
-            data = res.json()
+                res = requests.get(url, params=params, timeout=10)
+                data = res.json()
 
-            for place in data.get("results", [])[:10]:
-                place_id = place.get("place_id")
+                for place in data.get("results", [])[:10]:
+                    place_id = place.get("place_id")
 
-                details = self.get_details(place_id)
+                    details = self.get_details(place_id)
 
-                results.append({
-                    "title": place.get("name"),
-                    "location": place.get("formatted_address"),
-                    "rating": place.get("rating"),
-                    "reviews": place.get("user_ratings_total"),
-                    "phone": details.get("phone"),
-                    "website": details.get("website"),
-                    "source": "googlemaps",
-                    "url": f"https://www.google.com/maps/place/?q=place_id:{place_id}"
-                })
+                    results.append({
+                        "title": place.get("name"),
+                        "location": place.get("formatted_address"),
+                        "rating": place.get("rating"),
+                        "reviews": place.get("user_ratings_total"),
+                        "phone": details.get("phone"),
+                        "website": details.get("website"),
+                        "source": "googlemaps",
+                        "url": f"https://www.google.com/maps/place/?q=place_id:{place_id}"
+                    })
+
+            except Exception as e:
+                print("Maps error:", e)
 
         return results
 
     def get_details(self, place_id):
-        url = "https://maps.googleapis.com/maps/api/place/details/json"
+        try:
+            url = "https://maps.googleapis.com/maps/api/place/details/json"
 
-        params = {
-            "place_id": place_id,
-            "fields": "formatted_phone_number,website",
-            "key": self.api_key
-        }
+            params = {
+                "place_id": place_id,
+                "fields": "formatted_phone_number,website",
+                "key": self.api_key
+            }
 
-        res = requests.get(url, params=params)
-        data = res.json()
+            res = requests.get(url, params=params, timeout=10)
+            data = res.json()
 
-        result = data.get("result", {})
+            result = data.get("result", {})
 
-        return {
-            "phone": result.get("formatted_phone_number"),
-            "website": result.get("website")
-        }
+            return {
+                "phone": result.get("formatted_phone_number"),
+                "website": result.get("website")
+            }
+
+        except Exception as e:
+            print("Details error:", e)
+            return {}
