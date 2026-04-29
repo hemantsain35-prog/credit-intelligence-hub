@@ -1,22 +1,27 @@
-"""Main entry point for B2B lead intelligence pipeline (FINAL PRODUCTION VERSION)."""
+"""Main entry point for B2B lead intelligence pipeline (FINAL CLEAN VERSION)."""
 
 from dotenv import load_dotenv
 load_dotenv()
 
 import logging
 import hashlib
+import random
 
 from src.scrapers.indiamart_scraper import IndiaMART
 from src.scrapers.tradeindia_scraper import TradeIndia
 from src.scrapers.rss_scraper import RssScraper
+from src.scrapers.justdial_scraper import JustdialScraper
+
 from src.utils.demand_detector import DemandDetector
 from src.utils.location_filter import LocationFilter
 from src.utils.contact_extractor import ContactExtractor
 from src.utils.lead_scorer import LeadScorer, classify_lead
 from src.utils.enrichment import CompanyEnricher
+
 from src.services.telegram_service import TelegramService
 from src.services.sheets_webhook import send_to_sheet
-from src.utils.dedup_store import load_ids, save_ids, is_new_lead
+
+from src.utils.dedup_store import load_ids, save_ids
 
 
 # ============================================================
@@ -37,18 +42,24 @@ def deduplicate_items(items):
     unique = []
 
     for item in items:
-        url = item.get("url", "")
-        if url and url not in seen:
-            seen.add(url)
-            unique.append(item)
-        elif not url:
+        key = item.get("url") or item.get("title")
+
+        if key and key not in seen:
+            seen.add(key)
             unique.append(item)
 
     return unique
 
 
 def generate_id(item):
-    text = (item.get("title", "") + item.get("url", "")).strip()
+    """🔥 STRONG ID (prevents repeat leads)"""
+    text = (
+        item.get("title", "") +
+        item.get("company", "") +
+        item.get("location", "") +
+        item.get("phone", "")
+    ).lower().strip()
+
     return hashlib.md5(text.encode()).hexdigest()
 
 
@@ -84,7 +95,13 @@ def run_pipeline():
         logger.error(f"RSS error: {e}")
         rss_items = []
 
-    all_items = indiamart_items + tradeindia_items + rss_items
+    try:
+        justdial_items = JustdialScraper().fetch_all()
+    except Exception as e:
+        logger.error(f"Justdial error: {e}")
+        justdial_items = []
+
+    all_items = indiamart_items + tradeindia_items + rss_items + justdial_items
     logger.info(f"Total items fetched: {len(all_items)}")
 
     if not all_items:
@@ -92,7 +109,7 @@ def run_pipeline():
         return
 
     # ============================================================
-    # STEP 2: DEDUPLICATION (RUN LEVEL)
+    # STEP 2: DEDUP (RUN LEVEL)
     # ============================================================
     unique_items = deduplicate_items(all_items)
     logger.info(f"After deduplication: {len(unique_items)}")
@@ -105,6 +122,7 @@ def run_pipeline():
 
     for item in unique_items:
         result = detector.analyze(item)
+
         if result.get("is_demand"):
             item.update(result)
             items_with_demand.append(item)
@@ -116,7 +134,7 @@ def run_pipeline():
         return
 
     # ============================================================
-    # STEP 4: LOCATION FILTER
+    # STEP 4: LOCATION FILTER (RELAXED)
     # ============================================================
     location_filter = LocationFilter()
 
@@ -127,9 +145,10 @@ def run_pipeline():
         )
     ]
 
-    if not filtered_items:
-        logger.warning("⚠ No location match — fallback used")
-        filtered_items = items_with_demand[:15]
+    # 🔥 fallback if too strict
+    if len(filtered_items) < 10:
+        logger.warning("⚠ Expanding location filter")
+        filtered_items = items_with_demand[:20]
 
     logger.info(f"Location filtered: {len(filtered_items)}")
 
@@ -160,44 +179,24 @@ def run_pipeline():
         item["lead_type"] = classify_lead(item)
 
     # ============================================================
-    # STEP 8: FILTER
+    # STEP 8: FILTER (RELAXED)
     # ============================================================
-    qualified = [x for x in filtered_items if x.get("score", 0) >= 3]
+    qualified = [x for x in filtered_items if x.get("score", 0) >= 2]
 
     if not qualified:
         logger.warning("⚠ No qualified leads — fallback used")
-        qualified = filtered_items[:10]
+        qualified = filtered_items[:15]
 
     # ============================================================
-    # STEP 9: SORT
+    # STEP 9: SORT + RANDOMIZE
     # ============================================================
     qualified.sort(key=lambda x: x.get("score", 0), reverse=True)
-    top_leads = qualified[:10]
+    top_leads = qualified[:20]
+
+    random.shuffle(top_leads)
 
     # ============================================================
-    # STEP 10: SMART FALLBACK (ENSURE 10–15 LEADS)
-    # ============================================================
-    if len(top_leads) < 10:
-        logger.warning("⚠ Low leads — filling fallback")
-
-        existing_urls = {x.get("url") for x in top_leads}
-
-        fallback = [
-            x for x in items_with_demand
-            if x.get("funding_intent") and x.get("url") not in existing_urls
-        ]
-
-        fallback.sort(key=lambda x: x.get("score", 0), reverse=True)
-
-        top_leads.extend(fallback)
-        top_leads.sort(key=lambda x: x.get("score", 0), reverse=True)
-
-        top_leads = top_leads[:15]
-
-    logger.info(f"Final leads count: {len(top_leads)}")
-
-    # ============================================================
-    # STEP 11: PERMANENT DEDUP (ACROSS DAYS)
+    # STEP 10: FINAL DEDUP (NO REPEAT LEADS)
     # ============================================================
     seen_ids = load_ids()
     final_leads = []
@@ -205,33 +204,34 @@ def run_pipeline():
     for lead in top_leads:
         lead_id = generate_id(lead)
 
-        if is_new_lead(lead_id, seen_ids):
+        if lead_id not in seen_ids:
             lead["id"] = lead_id
             final_leads.append(lead)
             seen_ids.add(lead_id)
 
     save_ids(seen_ids)
-    top_leads = final_leads
 
-    logger.info(f"After permanent dedup: {len(top_leads)}")
-
-    if not top_leads:
-        telegram.send_message("⚠ All leads already processed")
+    if not final_leads:
+        telegram.send_message("⚠ No new leads today")
         return
 
+    final_leads = final_leads[:15]
+
+    logger.info(f"Final leads count: {len(final_leads)}")
+
     # ============================================================
-    # STEP 12: SAVE TO SHEET
+    # STEP 11: SAVE TO SHEET
     # ============================================================
-    for lead in top_leads:
+    for lead in final_leads:
         try:
             send_to_sheet(lead)
         except Exception as e:
             logger.warning(f"Sheet error: {e}")
 
     # ============================================================
-    # STEP 13: TELEGRAM
+    # STEP 12: TELEGRAM
     # ============================================================
-    success = telegram.send_leads(top_leads)
+    success = telegram.send_leads(final_leads)
 
     if success:
         logger.info("✅ Telegram sent")
@@ -245,5 +245,5 @@ def run_pipeline():
 # ENTRY POINT
 # ============================================================
 if __name__ == "__main__":
-    print("🔥 FINAL PRODUCTION SYSTEM LIVE")
+    print("🔥 FINAL SYSTEM LIVE")
     run_pipeline()
