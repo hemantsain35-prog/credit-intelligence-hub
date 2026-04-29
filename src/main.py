@@ -18,6 +18,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+# ================= ID =================
 def generate_id(item):
     text = (
         item.get("title", "") +
@@ -28,6 +29,7 @@ def generate_id(item):
     return hashlib.md5(text.encode()).hexdigest()
 
 
+# ================= PIPELINE =================
 def run_pipeline():
     logger.info("🚀 Starting pipeline")
 
@@ -40,7 +42,7 @@ def run_pipeline():
         logger.error(f"Maps error: {e}")
         items = []
 
-    logger.info(f"GoogleMaps: {len(items)}")
+    logger.info(f"GoogleMaps fetched: {len(items)}")
 
     if not items:
         telegram.send_message("⚠ No data fetched")
@@ -49,28 +51,38 @@ def run_pipeline():
     # ================= LOCATION =================
     location_filter = LocationFilter()
 
-    items = [
+    filtered = [
         x for x in items
         if location_filter.is_target_location(
             f"{x.get('title','')} {x.get('location','')}"
         )
     ]
 
-    if not items:
-        items = items[:20]
+    if not filtered:
+        logger.warning("⚠ Location fallback used")
+        filtered = items[:30]
 
     # ================= CONTACT =================
     extractor = ContactExtractor()
 
-    for item in items:
+    for item in filtered:
         text = f"{item.get('title','')}"
         item.update(extractor.extract(text))
 
-    # keep only callable
-    items = [x for x in items if x.get("phone")]
+    # ================= FIX: KEEP ALL LEADS =================
+    callable_leads = [x for x in filtered if x.get("phone")]
+    non_callable = [x for x in filtered if not x.get("phone")]
+
+    # priority to phone leads but don't drop others
+    items = callable_leads + non_callable
+
+    logger.info(f"With phone: {len(callable_leads)} | Without phone: {len(non_callable)}")
+
+    # limit size
+    items = items[:30]
 
     if not items:
-        telegram.send_message("⚠ No callable leads")
+        telegram.send_message("⚠ No leads after filtering")
         return
 
     # ================= SCORING =================
@@ -79,7 +91,9 @@ def run_pipeline():
     for item in items:
         item["score"] = scorer.calculate_score(item)
 
+    # sort + slight shuffle to avoid repetition
     items.sort(key=lambda x: x.get("score", 0), reverse=True)
+    items = items[:20]
     random.shuffle(items)
 
     # ================= DEDUP =================
@@ -104,12 +118,16 @@ def run_pipeline():
 
     # ================= OUTPUT =================
     for lead in final:
-        send_to_sheet(lead)
+        try:
+            send_to_sheet(lead)
+        except Exception as e:
+            logger.warning(f"Sheet error: {e}")
 
     telegram.send_leads(final)
 
-    logger.info("🎯 COMPLETE")
+    logger.info("🎯 PIPELINE COMPLETE")
 
 
+# ================= ENTRY =================
 if __name__ == "__main__":
     run_pipeline()
