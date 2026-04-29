@@ -19,9 +19,6 @@ from src.services.telegram_service import TelegramService
 from src.services.sheets_webhook import send_to_sheet
 
 
-# ============================================================
-# LOGGING
-# ============================================================
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -39,7 +36,7 @@ def generate_id(item):
 
 
 # ============================================================
-# FETCH FUNCTIONS
+# FETCH
 # ============================================================
 def fetch_maps():
     try:
@@ -71,23 +68,19 @@ def fetch_all_sources():
 
 
 # ============================================================
-# MAIN PIPELINE
+# PIPELINE
 # ============================================================
 def run_pipeline():
     logger.info("🚀 Starting pipeline")
 
     telegram = TelegramService()
-
     now = datetime.utcnow()
 
-    # ============================================================
-    # STEP 1: FETCH DATA
-    # ============================================================
+    # ================= FETCH =================
     items = fetch_maps()
 
-    # Daily deep scrape (once per day at ~UTC 00)
     if now.hour == 0:
-        logger.info("🔥 Running full scraper (daily)")
+        logger.info("🔥 Running full scrape")
         items += fetch_all_sources()
 
     logger.info(f"Fetched: {len(items)}")
@@ -96,20 +89,17 @@ def run_pipeline():
         telegram.send_message("⚠ No data fetched")
         return
 
-    # ============================================================
-    # STEP 2: DEDUP (same run)
-    # ============================================================
+    # ================= DEDUP =================
     unique = {}
     for item in items:
         key = (item.get("title", "") + item.get("location", "")).lower().strip()
         unique[key] = item
 
     items = list(unique.values())
+
     logger.info(f"After dedup: {len(items)}")
 
-    # ============================================================
-    # STEP 3: LOCATION FILTER
-    # ============================================================
+    # ================= LOCATION =================
     location_filter = LocationFilter()
 
     items = [
@@ -120,27 +110,23 @@ def run_pipeline():
     ]
 
     if not items:
-        telegram.send_message("⚠ No location matched")
-        return
+        logger.warning("Location fallback used")
+        items = list(unique.values())[:30]
 
-    # ============================================================
-    # STEP 4: CONTACT EXTRACTION
-    # ============================================================
+    # ================= CONTACT =================
     extractor = ContactExtractor()
 
     for item in items:
         item.update(extractor.extract(item.get("title", "")))
 
-    # ============================================================
-    # STEP 5: SCORING (HIGH + ULTRA)
-    # ============================================================
+    # ================= SCORING =================
     scorer = LeadScorer()
 
     for item in items:
         item["score"] = scorer.calculate_score(item)
 
-    # 🔥 FINAL FILTER
-    items = [x for x in items if x.get("score", 0) >= 12]
+    # 🔥 BALANCED FILTER (FIXED)
+    items = [x for x in items if x.get("score", 0) >= 6]
 
     logger.info(f"After scoring filter: {len(items)}")
 
@@ -148,32 +134,29 @@ def run_pipeline():
         telegram.send_message("⚠ No high-quality leads")
         return
 
-    # ============================================================
-    # STEP 6: SORT + LIMIT
-    # ============================================================
+    # ================= SORT =================
     items.sort(key=lambda x: x.get("score", 0), reverse=True)
 
-    items = items[:25]  # top 25 only
+    # ================= LIMIT =================
+    items = items[:25]
 
-    random.shuffle(items)  # avoid same ordering
+    random.shuffle(items)
 
-    # ============================================================
-    # STEP 7: FINAL OUTPUT
-    # ============================================================
+    # ================= FINAL =================
     final = []
 
     for lead in items:
         lead["id"] = generate_id(lead)
         final.append(lead)
 
-    # Send to Google Sheet
+    # Send to sheet
     for lead in final:
         try:
             send_to_sheet(lead)
         except Exception as e:
             logger.warning(f"Sheet error: {e}")
 
-    # Send top 10 to Telegram
+    # Telegram
     telegram.send_leads(final[:10])
 
     logger.info("🎯 PIPELINE COMPLETE")
