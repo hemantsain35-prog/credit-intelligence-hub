@@ -11,44 +11,65 @@ from src.utils.contact_extractor import ContactExtractor
 from src.utils.lead_scorer import LeadScorer
 from src.services.telegram_service import TelegramService
 from src.services.sheets_webhook import send_to_sheet
-from src.utils.dedup_store import load_ids, save_ids
 
 
+# ============================================================
+# LOGGING
+# ============================================================
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-# ================= ID =================
+# ============================================================
+# UNIQUE ID
+# ============================================================
 def generate_id(item):
     text = (
         item.get("title", "") +
-        item.get("location", "") +
-        str(item.get("phone", ""))
-    ).lower()
+        item.get("location", "")
+    ).lower().strip()
 
     return hashlib.md5(text.encode()).hexdigest()
 
 
-# ================= PIPELINE =================
+# ============================================================
+# MAIN PIPELINE
+# ============================================================
 def run_pipeline():
     logger.info("🚀 Starting pipeline")
 
     telegram = TelegramService()
 
-    # ================= FETCH =================
+    # ============================================================
+    # STEP 1: FETCH (Google Maps API)
+    # ============================================================
     try:
         items = GoogleMapsScraper().fetch_all()
     except Exception as e:
         logger.error(f"Maps error: {e}")
         items = []
 
-    logger.info(f"GoogleMaps fetched: {len(items)}")
+    logger.info(f"Fetched: {len(items)}")
 
     if not items:
         telegram.send_message("⚠ No data fetched")
         return
 
-    # ================= LOCATION =================
+    # ============================================================
+    # STEP 2: REMOVE DUPLICATES (same run)
+    # ============================================================
+    unique = {}
+    for item in items:
+        key = (item.get("title", "") + item.get("location", "")).lower().strip()
+        unique[key] = item
+
+    items = list(unique.values())
+
+    logger.info(f"After dedup: {len(items)}")
+
+    # ============================================================
+    # STEP 3: LOCATION FILTER
+    # ============================================================
     location_filter = LocationFilter()
 
     filtered = [
@@ -62,72 +83,72 @@ def run_pipeline():
         logger.warning("⚠ Location fallback used")
         filtered = items[:30]
 
-    # ================= CONTACT =================
+    # ============================================================
+    # STEP 4: CONTACT EXTRACTION
+    # ============================================================
     extractor = ContactExtractor()
 
     for item in filtered:
         text = f"{item.get('title','')}"
         item.update(extractor.extract(text))
 
-    # ================= FIX: KEEP ALL LEADS =================
+    # ============================================================
+    # STEP 5: PRIORITIZE PHONE LEADS (BUT KEEP ALL)
+    # ============================================================
     callable_leads = [x for x in filtered if x.get("phone")]
     non_callable = [x for x in filtered if not x.get("phone")]
 
-    # priority to phone leads but don't drop others
     items = callable_leads + non_callable
 
     logger.info(f"With phone: {len(callable_leads)} | Without phone: {len(non_callable)}")
 
-    # limit size
-    items = items[:30]
-
-    if not items:
-        telegram.send_message("⚠ No leads after filtering")
-        return
-
-    # ================= SCORING =================
+    # ============================================================
+    # STEP 6: SCORING
+    # ============================================================
     scorer = LeadScorer()
 
     for item in items:
         item["score"] = scorer.calculate_score(item)
 
-    # sort + slight shuffle to avoid repetition
+    # Sort best first
     items.sort(key=lambda x: x.get("score", 0), reverse=True)
-    items = items[:20]
+
+    # ============================================================
+    # STEP 7: LIMIT TOP 25
+    # ============================================================
+    items = items[:25]
+
+    # Slight shuffle to avoid same ordering daily
     random.shuffle(items)
 
-    # ================= DEDUP =================
-    seen = load_ids()
+    # ============================================================
+    # STEP 8: FINAL FORMAT + SEND
+    # ============================================================
     final = []
 
     for lead in items:
-        lead_id = generate_id(lead)
-
-        if lead_id not in seen:
-            lead["id"] = lead_id
-            final.append(lead)
-            seen.add(lead_id)
-
-    save_ids(seen)
+        lead["id"] = generate_id(lead)
+        final.append(lead)
 
     if not final:
-        telegram.send_message("⚠ No new leads")
+        telegram.send_message("⚠ No leads ready")
         return
 
-    final = final[:15]
-
-    # ================= OUTPUT =================
+    # Send to sheet
     for lead in final:
         try:
             send_to_sheet(lead)
         except Exception as e:
             logger.warning(f"Sheet error: {e}")
 
-    telegram.send_leads(final)
+    # Send to Telegram
+    telegram.send_leads(final[:10])
 
     logger.info("🎯 PIPELINE COMPLETE")
 
 
-# ================= ENTRY =================
+# ============================================================
+# ENTRY
+# ============================================================
 if __name__ == "__main__":
     run_pipeline()
