@@ -1,6 +1,5 @@
 import requests
 import os
-import json
 
 
 SHEET_URL = os.getenv("GOOGLE_SHEET_WEBHOOK_URL")
@@ -8,7 +7,7 @@ BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 
-def get_leads():
+def get_followups():
     try:
         res = requests.get(SHEET_URL)
         return res.json()
@@ -29,31 +28,30 @@ def send_message(text):
 
 
 def run_followup():
-    leads = get_leads()
+    data = get_followups()
 
-    if not leads:
+    if not data:
         return
 
     pending = [
-        x for x in leads
+        x for x in data
         if x.get("status") in ["NEW", "FOLLOW-UP"]
     ]
 
     if not pending:
-        send_message("✅ No pending follow-ups")
+        send_message("✅ No follow-ups pending")
         return
 
-    msg = "📞 <b>FOLLOW-UP REMINDER</b>\n\n"
+    msg = "📞 <b>FOLLOW-UP SHEET REMINDER</b>\n\n"
 
     for i, lead in enumerate(pending[:10], start=1):
         msg += (
             f"{i}. <b>{lead.get('title')}</b>\n"
-            f"📍 {lead.get('location')}\n"
             f"📞 {lead.get('phone')}\n"
             f"Status: {lead.get('status')}\n\n"
         )
 
-    msg += "👉 Take action now"
+    msg += "👉 Update Sheet 2"
 
     send_message(msg)
 
