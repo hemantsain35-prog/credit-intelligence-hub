@@ -7,58 +7,38 @@ class LeadScorer:
         reviews = item.get("reviews", 0) or 0
         rating = item.get("rating", 0) or 0
 
-        # =========================
-        # 🔥 INDUSTRY (HIGH VALUE)
-        # =========================
+        # INDUSTRY
         if any(k in title for k in [
-            "manufacturer", "factory", "exporter",
-            "supplier", "industrial", "fabrication",
-            "trader", "wholesaler"
+            "manufacturer", "factory", "supplier",
+            "industrial", "fabrication", "trader"
         ]):
-            score += 6
+            score += 5
         else:
-            score -= 3   # not reject, just lower priority
+            score -= 2
 
-        # =========================
-        # 📞 CONTACT (IMPORTANT)
-        # =========================
+        # PHONE
         if item.get("phone"):
             score += 4
-        else:
+
+        # WEBSITE
+        if item.get("website"):
+            score += 2
+
+        # REVIEWS
+        if 5 <= reviews <= 120:
+            score += 4
+        elif reviews > 300:
             score -= 2
 
-        # =========================
-        # 🌐 WEBSITE (SERIOUS BUSINESS)
-        # =========================
-        if item.get("website"):
-            score += 3
-
-        # =========================
-        # 📊 GROWTH SIGNAL
-        # =========================
-        if 5 <= reviews <= 120:
-            score += 5
-        elif reviews < 5:
-            score += 2
-        elif reviews > 300:
-            score -= 3
-
-        # =========================
-        # ⭐ TRUST
-        # =========================
+        # RATING
         if rating >= 4:
             score += 2
-        elif rating < 3:
-            score -= 2
 
-        # =========================
-        # 🚫 LOW VALUE FILTER (SOFT)
-        # =========================
+        # LOW VALUE BUSINESSES (SOFT FILTER)
         if any(k in title for k in [
             "salon", "spa", "gym", "cafe",
-            "restaurant", "consultant",
-            "digital marketing", "coaching"
+            "restaurant", "consultant"
         ]):
-            score -= 6
+            score -= 4
 
         return score
