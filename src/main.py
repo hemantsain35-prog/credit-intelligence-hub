@@ -126,7 +126,7 @@ def run_pipeline():
         item["score"] = scorer.calculate_score(item)
 
     # 🔥 BALANCED FILTER (FIXED)
-    items = [x for x in items if x.get("score", 0) >= 6]
+    items = [x for x in items if x.get("score", 0) >= 3]
 
     logger.info(f"After scoring filter: {len(items)}")
 
